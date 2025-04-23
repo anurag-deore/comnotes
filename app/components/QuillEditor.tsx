@@ -1,12 +1,11 @@
 'use client';
+import ReactQuill, { Quill } from 'react-quill-new';
+import { useEffect, useState } from 'react'; 
+import MagicUrl from "quill-magic-url";
 
-import dynamic from 'next/dynamic';
-import 'react-quill/dist/quill.snow.css';
-
-const ReactQuill = dynamic(() => import('react-quill'), { 
-  ssr: false,
-  loading: () => <div className="h-full flex items-center justify-center">Loading editor...</div>
-});
+Quill.register("modules/magicUrl", MagicUrl);
+ 
+import 'react-quill-new/dist/quill.snow.css';
 
 interface QuillEditorProps {
   value: string;
@@ -14,29 +13,35 @@ interface QuillEditorProps {
 }
 
 export default function QuillEditor({ value, onChange }: QuillEditorProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <div>Loading editor...</div>;
+  }
+
+  const modules = {
+    toolbar: [
+      [{ header: [1, 2, 3, 4, 5, 6, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ list: 'ordered' }, { list: 'bullet' }],
+      ['link', 'blockquote', 'code-block'],
+      [{ color: [] }, { background: [] }],
+      ['clean'],
+    ],
+    magicUrl: true,
+  };
+
   return (
     <ReactQuill
       theme="snow"
       value={value}
       onChange={onChange}
-      modules={{
-        toolbar: false,
-        clipboard: {
-          matchVisual: false,
-        },
-      }}
-      formats={[
-        'bold',
-        'italic',
-        'underline',
-        'strike',
-        'list',
-        'bullet',
-        'indent',
-        'link',
-        'clean'
-      ]}
-      className="h-full [&_.ql-container]:h-[calc(100%-42px)] [&_.ql-editor]:min-h-[calc(100vh-8rem)] [&_.ql-editor]:p-4 [&_.ql-editor]:text-gray-900"
+      modules={modules}
+      className="h-[calc(100vh-12rem)]"
     />
   );
-} 
+}

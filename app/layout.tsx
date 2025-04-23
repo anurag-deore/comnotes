@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Georama } from "next/font/google";
 import "./globals.css";
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Georama({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Secure Notes",
