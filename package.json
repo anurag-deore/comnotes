@@ -2,26 +2,40 @@
   "name": "comnotes",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "init-pin": "npx ts-node --esm scripts/init-pin.ts",
+    "export": "next build && next export",
+    "deploy": "npm run export && firebase deploy"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.11",
+    "@radix-ui/react-separator": "^1.1.4",
+    "@tiptap/pm": "^2.11.7",
+    "clsx": "^2.1.1",
+    "dotenv": "^16.5.0",
+    "firebase": "^11.6.0",
+    "lucide-react": "^0.503.0",
+    "next": "15.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.1"
+    "react-hot-toast": "^2.5.2",
+    "react-quill": "^2.0.0",
+    "tailwind-merge": "^3.2.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.3.1",
-    "@eslint/eslintrc": "^3"
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
