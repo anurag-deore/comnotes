@@ -7,9 +7,11 @@ import { db } from '@/lib/firebase';
 import { Note } from '@/types/note';
 import SimpleEditor from '@/app/components/SimpleEditor';
 import toast from 'react-hot-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function NotesPage() {
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [localTitle, setLocalTitle] = useState<string>('');
@@ -19,8 +21,7 @@ export default function NotesPage() {
 
   // Load notes from Firebase on initial load
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem('isAuthenticated');
-    if (isAuthenticated !== 'true') {
+    if (!isAuthenticated) {
       router.push('/');
       return;
     }
@@ -51,7 +52,7 @@ export default function NotesPage() {
     });
 
     return () => unsubscribe();
-  }, [router]);
+  }, [router, isAuthenticated]);
 
   const handleEditorChange = (content: string) => {
     if (selectedNote) {
@@ -239,4 +240,4 @@ export default function NotesPage() {
       </div>
     </div>
   );
-} 
+}

@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { Lock } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function PinLock() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
-  const router = useRouter();
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,8 +18,7 @@ export default function PinLock() {
     try {
       const pinDoc = await getDoc(doc(db, 'pin', 'default'));
       if (pinDoc.exists() && pinDoc.data().value === pin) {
-        localStorage.setItem('isAuthenticated', 'true');
-        router.push('/notes');
+        login();
       } else {
         setError('Invalid PIN');
       }
@@ -64,4 +63,4 @@ export default function PinLock() {
       </div>
     </div>
   );
-} 
+}

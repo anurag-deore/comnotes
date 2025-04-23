@@ -3,16 +3,17 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import PinLock from '@/components/PinLock';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Home() {
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem('isAuthenticated');
-    if (isAuthenticated === 'true') {
+    if (isAuthenticated) {
       router.push('/notes');
     }
-  }, [router]);
+  }, [router, isAuthenticated]);
 
   return <PinLock />;
 }
