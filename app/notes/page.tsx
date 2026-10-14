@@ -2,12 +2,18 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react'; // Import useMemo
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { collection, query, orderBy, getDocs, addDoc, doc, Timestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Note } from '@/types/note';
-import QuillEditor from '@/app/components/QuillEditor';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
+
+// Quill needs the DOM, so the editor only renders in the browser
+const QuillEditor = dynamic(() => import('@/app/components/QuillEditor'), {
+  ssr: false,
+  loading: () => <div>Loading editor...</div>,
+});
 
 export default function NotesPage() {
   const router = useRouter();
@@ -15,7 +21,6 @@ export default function NotesPage() {
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   // Store only the ID of the selected note
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
-  const [localTitle, setLocalTitle] = useState<string>(''); // local state for title input
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const initialFetchAndSelectDone = useRef(false);
@@ -25,6 +30,9 @@ export default function NotesPage() {
   const selectedNote = useMemo(() => {
     return localNotes.find(note => note.id === selectedNoteId) || null;
   }, [localNotes, selectedNoteId]);
+
+  // Title input value, derived from the selected note
+  const localTitle = selectedNote?.title ?? '';
 
   // Load notes from Firebase on initial load (fetch once)
   useEffect(() => {
@@ -59,11 +67,8 @@ export default function NotesPage() {
         if (notesData.length > 0) {
           // Set the ID of the selected note
           setSelectedNoteId(notesData[0].id);
-          // Also initialize the local title state
-          setLocalTitle(notesData[0].title);
         } else {
           setSelectedNoteId(null);
-          setLocalTitle('');
         }
 
         setIsLoading(false);
@@ -80,16 +85,6 @@ export default function NotesPage() {
     fetchNotes();
 
   }, [router, isAuthenticated]); // Dependencies remain the same
-
-  // Effect to update localTitle when the selected note changes (e.g. user clicks a different note)
-  // This is needed because localTitle state manages the input value separately.
-  useEffect(() => {
-    if (selectedNote) {
-      setLocalTitle(selectedNote.title);
-    } else {
-      setLocalTitle('');
-    }
-  }, [selectedNote]);
 
 
   // Handles changes in the Quill editor content
@@ -163,8 +158,6 @@ export default function NotesPage() {
       setLocalNotes([createdNote, ...localNotes]);
       // Set the ID of the newly created note as selected
       setSelectedNoteId(createdNote.id);
-      // Update local title state
-      setLocalTitle('Untitled Note');
 
       toast.success('Note created successfully', { id: createToast });
     } catch (error) {
@@ -175,8 +168,6 @@ export default function NotesPage() {
 
   // Handles changes to the note title input
   const handleTitleChange = (newTitle: string) => {
-    setLocalTitle(newTitle); // Update local state for the input value
-
     if (selectedNoteId) {
       // Update local state for the selected note's title based on ID
       setLocalNotes(prevNotes =>
@@ -198,7 +189,6 @@ export default function NotesPage() {
   const handleNoteSelect = (note: Note) => {
     // Set the ID of the selected note
     setSelectedNoteId(note.id);
-    // localTitle will be updated by the useEffect triggered by selectedNote change
   };
 
   // Helper function to format dates

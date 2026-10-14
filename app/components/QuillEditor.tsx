@@ -1,6 +1,5 @@
 'use client';
 import ReactQuill, { Quill } from 'react-quill-new';
-import { useEffect, useState } from 'react'; 
 import MagicUrl from "quill-magic-url";
 
 Quill.register("modules/magicUrl", MagicUrl);
@@ -13,16 +12,6 @@ interface QuillEditorProps {
 }
 
 export default function QuillEditor({ value, onChange }: QuillEditorProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return <div>Loading editor...</div>;
-  }
-
   const modules = {
     toolbar: [
       [{ header: [1, 2, 3, 4, 5, 6, false] }],
