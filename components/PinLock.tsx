@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { Lock } from 'lucide-react';
 import { unlock } from '@/lib/auth';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function PinLock() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const { lockedForInactivity } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +34,9 @@ export default function PinLock() {
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
             Enter PIN
           </h2>
+          {lockedForInactivity && (
+            <p className="mt-2 text-sm text-gray-500">Locked after inactivity</p>
+          )}
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div>

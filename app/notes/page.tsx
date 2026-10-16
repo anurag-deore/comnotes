@@ -25,7 +25,7 @@ const saveLabel = (status: SaveStatus) => {
 
 export default function NotesPage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   // Store only the ID of the selected note
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -33,7 +33,7 @@ export default function NotesPage() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // On a conflict the server version replaces ours and our version shows up as a copy
-  const { status, change, isDirty } = useAutosave(({ server, copy }) => {
+  const { status, change, draft } = useAutosave(({ server, copy }) => {
     setLocalNotes(prevNotes => [
       copy,
       ...prevNotes.filter(note => note.id !== copy.id).map(note => (note.id === server.id ? server : note)),
@@ -59,10 +59,8 @@ export default function NotesPage() {
     let isFirstSnapshot = true;
     return subscribeNotes(
       (serverNotes) => {
-        // A note with unsaved local edits keeps our copy until its save lands
-        setLocalNotes(prevNotes =>
-          serverNotes.map(note => (isDirty(note.id) && prevNotes.find(prev => prev.id === note.id)) || note)
-        );
+        // A note with unsaved edits shows them until its save lands, even after a lock and unlock
+        setLocalNotes(serverNotes.map(note => ({ ...note, ...draft(note.id) })));
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
           // Select the first note by default, only on initial load
@@ -76,7 +74,7 @@ export default function NotesPage() {
         console.error('Error loading notes:', error);
       },
     );
-  }, [router, isAuthenticated, isDirty]);
+  }, [router, isAuthenticated, draft]);
 
   // Applies an edit locally and queues an autosave of just that note
   const updateSelectedNote = (fields: Partial<Pick<Note, 'title' | 'content'>>) => {
@@ -146,6 +144,13 @@ export default function NotesPage() {
             title="New Note"
           >
             New Note
+          </button>
+          <button
+            onClick={() => void logout()}
+            className="w-full border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-100 transition-colors"
+            title="Lock"
+          >
+            Lock
           </button>
         </div>
         <div className="overflow-y-auto h-[calc(100vh-8rem)] flex-1">

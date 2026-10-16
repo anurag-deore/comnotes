@@ -3,6 +3,7 @@ import { Georama } from "next/font/google";
 import "./globals.css";
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { AutosaveProvider } from '@/contexts/AutosaveContext';
 
 const inter = Georama({ subsets: ["latin"] });
 
@@ -19,10 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="light">
       <body className={`${inter.className} bg-white text-gray-900`}>
-        <AuthProvider>
-          {children}
-          <Toaster position="top-right" />
-        </AuthProvider>
+        <AutosaveProvider>
+          <AuthProvider>
+            {children}
+            <Toaster position="top-right" />
+          </AuthProvider>
+        </AutosaveProvider>
       </body>
     </html>
   );

@@ -1,36 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createAutosaver, type SaveStatus } from '@/lib/autosave';
-import { saveNote, type SaveResult } from '@/lib/notes';
+import { useEffect, useEffectEvent } from 'react';
+import { useSaver, type Conflict } from '@/contexts/AutosaveContext';
 
-type Conflict = Extract<SaveResult, { status: 'conflict' }>;
-
-// One autosaver per mounted notes page; flush() is what auto-lock (CNOTE-8) should await.
-// onConflict is captured once, so it must only use stable things like state setters.
+// A page's view of the shared autosaver; onConflict is called while the page is mounted
 export function useAutosave(onConflict: (conflict: Conflict) => void) {
-  const [status, setStatus] = useState<SaveStatus>('idle');
-  const [saver] = useState(() => createAutosaver({
-    save: saveNote,
-    delayMs: 1000,
-    retryMs: 5000,
-    onStatus: setStatus,
-    onConflict,
-  }));
+  const { saver, status, conflicts } = useSaver();
+  const handleConflict = useEffectEvent(onConflict);
 
   useEffect(() => {
-    // The browser can't wait for the save, so ask the user to stay while it finishes
-    const guard = (event: BeforeUnloadEvent) => {
-      if (!saver.hasPending()) return;
-      event.preventDefault();
-      void saver.flush();
-    };
-    window.addEventListener('beforeunload', guard);
+    const listener = (conflict: Conflict) => handleConflict(conflict);
+    conflicts.add(listener);
     return () => {
-      window.removeEventListener('beforeunload', guard);
-      void saver.flush();
+      conflicts.delete(listener);
     };
-  }, [saver]);
+  }, [conflicts]);
 
-  return { status, change: saver.change, flush: saver.flush, isDirty: saver.isDirty };
+  return { status, change: saver.change, draft: saver.draft };
 }

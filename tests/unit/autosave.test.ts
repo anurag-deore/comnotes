@@ -183,3 +183,32 @@ describe('flush', () => {
     expect(save).not.toHaveBeenCalled();
   });
 });
+
+describe('draft', () => {
+  test('CNOTE-8 AC-7: returns the pending draft, then the in-flight one, then nothing once saved', async () => {
+    const first = deferred<SaveResult>();
+    save.mockImplementationOnce(() => first.promise);
+    const saver = setup();
+
+    saver.change(draft('a', 'x'));
+    expect(saver.draft('a')).toEqual(draft('a', 'x'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(saver.draft('a')).toEqual(draft('a', 'x'));
+
+    saver.change(draft('a', 'xy'));
+    expect(saver.draft('a')).toEqual(draft('a', 'xy'));
+
+    first.resolve({ status: 'saved', rev: 1 });
+    await saver.flush();
+    expect(saver.draft('a')).toBeUndefined();
+    expect(saver.draft('b')).toBeUndefined();
+  });
+
+  test('CNOTE-8 AC-6: a draft that failed to save is kept', async () => {
+    save.mockRejectedValue(new Error('permission-denied'));
+    const saver = setup();
+    saver.change(draft('a', 'x'));
+    await saver.flush();
+    expect(saver.draft('a')).toEqual(draft('a', 'x'));
+  });
+});

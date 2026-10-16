@@ -14,6 +14,8 @@ interface AutosaverOptions {
 export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict }: AutosaverOptions) {
   const pending = new Map<string, NoteDraft>();
   const inFlight = new Map<string, Promise<void>>();
+  // The draft each in-flight save is writing, so draft() can still return it
+  const sending = new Map<string, NoteDraft>();
   // Last rev we know the server has for each note, so we don't conflict with our own saves
   const revs = new Map<string, number>();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -33,6 +35,7 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict }
   async function saveOne(id: string) {
     const draft = pending.get(id)!;
     pending.delete(id);
+    sending.set(id, draft);
     try {
       const result = await save({ ...draft, rev: Math.max(draft.rev, revs.get(id) ?? 0) });
       failed = false;
@@ -59,6 +62,7 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict }
   function start(id: string) {
     const saving = saveOne(id).finally(() => {
       inFlight.delete(id);
+      sending.delete(id);
       report();
     });
     inFlight.set(id, saving);
@@ -90,6 +94,8 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict }
     },
     flush,
     isDirty: (id: string) => pending.has(id) || inFlight.has(id),
+    // Latest unsaved text of a note, so a remounted page shows it instead of the server copy
+    draft: (id: string) => pending.get(id) ?? sending.get(id),
     hasPending: () => pending.size > 0 || inFlight.size > 0,
     dispose: () => clearTimeout(timer),
   };
