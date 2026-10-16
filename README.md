@@ -35,6 +35,9 @@ The session is kept in memory only, so every refresh or new tab asks for the PIN
 
 - `npm test` runs the unit tests.
 - `npm run test:rules` runs the Firestore security rules tests against the emulator. It needs JDK 21+.
+- `npm run typecheck` runs `tsc --noEmit`.
+
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, unit tests, build and the rules tests on every PR and push to `main`.
 
 ## Getting Started
 
