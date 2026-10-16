@@ -22,8 +22,8 @@ The PIN is the password of a single Firebase Auth user. Firebase checks it serve
 
 1. Authentication → Sign-in method: enable **Email/Password**.
 2. Authentication → Users → Add user: use `NEXT_PUBLIC_OWNER_EMAIL` as the email and your PIN as the password. Firebase requires at least 6 characters; 8+ or letters and digits are much harder to guess.
-3. Copy the new user's **User UID** into `ownerUid()` in `firestore.rules`, replacing `REPLACE_WITH_OWNER_UID`.
-4. Deploy the rules: `npx firebase deploy --only firestore:rules --project <project-id>`.
+3. Note the new user's **User UID**.
+4. Deploy the rules with that uid (see [Firestore rules](#firestore-rules) below).
 5. Optional: Authentication → Settings → User actions, turn off **Enable create (sign-up)**.
 6. Firestore → Data: delete the old `pin` collection.
 
@@ -68,8 +68,26 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deploy
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### App (Vercel)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The Vercel GitHub integration builds every push. The Firebase env vars are set in the Vercel project, not in the repo.
+
+- **PRs** get a preview deployment.
+- **`main`** gets a production build. It is only promoted to the production domain once all five CI checks (`lint`, `typecheck`, `unit-tests`, `build`, `rules-tests`) pass on that commit, via Vercel [Deployment Checks](https://vercel.com/docs/deployment-checks). **Force Promote** on the deployment page bypasses this.
+
+One-time setup in the Vercel dashboard:
+
+1. Project → Settings → Environments → Production: make sure automatic aliasing for production is on.
+2. Project → Settings → Build and Deployment → Deployment Checks → **Add Checks** → **GitHub** → select `lint`, `typecheck`, `unit-tests`, `build`, `rules-tests`.
+
+Vercel matches checks by job name, so renaming a CI job means updating this list.
+
+### Firestore rules
+
+The rules are deployed by hand, because the real owner uid must never be committed:
+
+1. Paste the owner's User UID into `ownerUid()` in `firestore.rules`, replacing `REPLACE_WITH_OWNER_UID`.
+2. `npm run deploy:rules -- --project <project-id>`. It refuses while `REPLACE_WITH_OWNER_UID` is still there.
+3. `git restore firestore.rules`.

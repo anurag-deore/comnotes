@@ -9,10 +9,9 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "export": "next build && next export",
-    "deploy": "npm run export && firebase deploy",
     "test": "vitest run --project unit",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-comnotes 'vitest run --project rules'"
+    "test:rules": "firebase emulators:exec --only firestore --project demo-comnotes 'vitest run --project rules'",
+    "deploy:rules": "grep -q REPLACE_WITH_OWNER_UID firestore.rules && echo 'firestore.rules still has REPLACE_WITH_OWNER_UID. Paste the owner uid first (see README).' >&2 && exit 1; firebase deploy --only firestore:rules"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.3.1",
