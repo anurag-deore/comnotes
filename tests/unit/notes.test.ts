@@ -15,6 +15,8 @@ const firestore = vi.hoisted(() => {
     orderBy: vi.fn((field: string, dir: string) => ({ orderBy: field, dir })),
     onSnapshot: vi.fn(),
     addDoc: vi.fn(),
+    updateDoc: vi.fn(),
+    writeBatch: vi.fn(),
     runTransaction: vi.fn(),
     serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
   };
@@ -24,7 +26,10 @@ vi.mock('firebase/firestore', () => firestore);
 const db = vi.hoisted(() => ({ name: 'test-db' }));
 vi.mock('@/lib/firebase', () => ({ db }));
 
-import { createNote, saveNote, subscribeNotes, toNote } from '@/lib/notes';
+import {
+  createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, saveNote, subscribeNotes, toNote, trashNote,
+} from '@/lib/notes';
+import type { Note } from '@/types/note';
 
 const { Timestamp } = firestore;
 
@@ -48,7 +53,15 @@ beforeEach(() => {
 describe('toNote', () => {
   test('AC-2: a document without rev reads as rev 0 and Timestamps become Dates', () => {
     const n = toNote('a', { title: 'T', content: 'C', createdAt: new Timestamp(5), updatedAt: new Timestamp(9) });
-    expect(n).toEqual({ id: 'a', title: 'T', content: 'C', rev: 0, createdAt: new Date(5), updatedAt: new Date(9) });
+    expect(n).toEqual({
+      id: 'a', title: 'T', content: 'C', rev: 0, createdAt: new Date(5), updatedAt: new Date(9), deletedAt: null,
+    });
+  });
+
+  test('CNOTE-6 AC-1: missing or null deletedAt is not deleted; a Timestamp becomes a Date', () => {
+    expect(toNote('a', { title: 'T' }).deletedAt).toBeNull();
+    expect(toNote('a', { title: 'T', deletedAt: null }).deletedAt).toBeNull();
+    expect(toNote('a', { title: 'T', deletedAt: new Timestamp(3) }).deletedAt).toEqual(new Date(3));
   });
 
   test('keeps an existing rev', () => {
@@ -92,9 +105,17 @@ describe('saveNote', () => {
     });
   });
 
-  test('a missing note rejects', async () => {
-    transactionWith(undefined);
-    await expect(saveNote({ id: 'a', title: 'T', content: '', rev: 0 })).rejects.toThrow('Note no longer exists');
+  test('CNOTE-6 AC-11: a missing note returns gone and writes nothing', async () => {
+    const tx = transactionWith(undefined);
+    await expect(saveNote({ id: 'a', title: 'T', content: '', rev: 0 })).resolves.toEqual({ status: 'gone' });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.set).not.toHaveBeenCalled();
+  });
+
+  test('CNOTE-6 AC-9: a note in Trash still saves and stays in Trash', async () => {
+    const tx = transactionWith({ title: 'Old', content: 'old', rev: 1, deletedAt: new Timestamp(3) });
+    await expect(saveNote({ id: 'a', title: 'New', content: 'new', rev: 1 })).resolves.toEqual({ status: 'saved', rev: 2 });
+    expect(tx.update.mock.calls[0][1]).not.toHaveProperty('deletedAt');
   });
 });
 
@@ -124,6 +145,69 @@ describe('createNote', () => {
     expect(firestore.addDoc).toHaveBeenCalledWith({ path: 'notes' }, {
       title: 'Untitled Note', content: '', rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
     });
-    expect(n).toEqual({ id: 'b', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000) });
+    expect(n).toEqual({
+      id: 'b', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000), deletedAt: null,
+    });
+  });
+});
+
+// Fake write batches that record what each one deletes
+function batches() {
+  const made: { delete: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> }[] = [];
+  firestore.writeBatch.mockImplementation(() => {
+    const batch = { delete: vi.fn(), commit: vi.fn(async () => {}) };
+    made.push(batch);
+    return batch;
+  });
+  return made;
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+const trashed = (id: string, deletedAt: Date | null): Note => ({
+  id, title: id, content: '', rev: 0, createdAt: new Date(0), updatedAt: new Date(0), deletedAt,
+});
+
+describe('trash', () => {
+  test('AC-2: trashNote sets only deletedAt to a server timestamp', async () => {
+    await trashNote('a');
+    expect(firestore.updateDoc).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/a' }), {
+      deletedAt: 'SERVER_TIMESTAMP',
+    });
+  });
+
+  test('AC-3: restoreNote clears deletedAt only', async () => {
+    await restoreNote('a');
+    expect(firestore.updateDoc).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/a' }), { deletedAt: null });
+  });
+
+  test('AC-4: deleteNotesForever deletes every id in batches of at most 500', async () => {
+    const made = batches();
+    const ids = Array.from({ length: 501 }, (_, i) => `n${i}`);
+    await deleteNotesForever(ids);
+
+    expect(made.map((b) => b.delete.mock.calls.length)).toEqual([500, 1]);
+    expect(made.every((b) => b.commit.mock.calls.length === 1)).toBe(true);
+    expect(made[1].delete).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/n500' }));
+  });
+
+  test('AC-5: purgeExpiredTrash deletes only notes trashed more than 30 days ago', async () => {
+    const made = batches();
+    const now = new Date(100 * DAY);
+    const deleted = await purgeExpiredTrash([
+      trashed('live', null),
+      trashed('recent', new Date(now.getTime() - 29 * DAY)),
+      trashed('exactly30', new Date(now.getTime() - 30 * DAY)),
+      trashed('old', new Date(now.getTime() - 31 * DAY)),
+    ], now);
+
+    expect(deleted).toBe(1);
+    expect(made).toHaveLength(1);
+    expect(made[0].delete.mock.calls.map(([ref]) => ref.path)).toEqual(['notes/old']);
+  });
+
+  test('AC-5: purgeExpiredTrash writes nothing when nothing has expired', async () => {
+    batches();
+    await expect(purgeExpiredTrash([trashed('live', null)], new Date(100 * DAY))).resolves.toBe(0);
+    expect(firestore.writeBatch).not.toHaveBeenCalled();
   });
 });

@@ -6,4 +6,6 @@ export interface Note {
   rev: number;
   createdAt: Date;
   updatedAt: Date;
+  // Set while the note is in Trash
+  deletedAt: Date | null;
 }

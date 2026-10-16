@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { createAutosaver, type Autosaver, type SaveStatus } from '@/lib/autosave';
-import { saveNote, type SaveResult } from '@/lib/notes';
+import { saveNote, type NoteDraft, type SaveResult } from '@/lib/notes';
 
 export type Conflict = Extract<SaveResult, { status: 'conflict' }>;
 
@@ -10,6 +10,8 @@ interface AutosaveContextType {
   saver: Autosaver;
   status: SaveStatus;
   conflicts: Set<(conflict: Conflict) => void>;
+  // Told when a note was deleted for good and its unsaved draft dropped (CNOTE-6)
+  gone: Set<(draft: NoteDraft) => void>;
 }
 
 const AutosaveContext = createContext<AutosaveContextType | null>(null);
@@ -18,12 +20,14 @@ const AutosaveContext = createContext<AutosaveContextType | null>(null);
 export function AutosaveProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [conflicts] = useState(() => new Set<(conflict: Conflict) => void>());
+  const [gone] = useState(() => new Set<(draft: NoteDraft) => void>());
   const [saver] = useState(() => createAutosaver({
     save: saveNote,
     delayMs: 1000,
     retryMs: 5000,
     onStatus: setStatus,
     onConflict: (conflict) => conflicts.forEach((listener) => listener(conflict)),
+    onGone: (draft) => gone.forEach((listener) => listener(draft)),
   }));
 
   useEffect(() => {
@@ -41,7 +45,7 @@ export function AutosaveProvider({ children }: { children: ReactNode }) {
   }, [saver]);
 
   return (
-    <AutosaveContext.Provider value={{ saver, status, conflicts }}>
+    <AutosaveContext.Provider value={{ saver, status, conflicts, gone }}>
       {children}
     </AutosaveContext.Provider>
   );

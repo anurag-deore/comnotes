@@ -5,7 +5,7 @@ import type { Note } from '@/types/note';
 
 const draft = (id: string, content: string, rev = 0): NoteDraft => ({ id, title: `T ${id}`, content, rev });
 const note = (id: string, rev: number, content = ''): Note => ({
-  id, title: `T ${id}`, content, rev, createdAt: new Date(0), updatedAt: new Date(0),
+  id, title: `T ${id}`, content, rev, createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null,
 });
 
 // A save whose resolution the test controls
@@ -19,9 +19,10 @@ function deferred<T>() {
 let save: ReturnType<typeof vi.fn<(d: NoteDraft) => Promise<SaveResult>>>;
 let statuses: SaveStatus[];
 let onConflict: ReturnType<typeof vi.fn<(result: Extract<SaveResult, { status: 'conflict' }>) => void>>;
+let onGone: ReturnType<typeof vi.fn<(d: NoteDraft) => void>>;
 
 const setup = () => createAutosaver({
-  save, delayMs: 1000, retryMs: 5000, onStatus: (s) => statuses.push(s), onConflict,
+  save, delayMs: 1000, retryMs: 5000, onStatus: (s) => statuses.push(s), onConflict, onGone,
 });
 
 beforeEach(() => {
@@ -29,6 +30,7 @@ beforeEach(() => {
   save = vi.fn(async (d: NoteDraft): Promise<SaveResult> => ({ status: 'saved', rev: d.rev + 1 }));
   statuses = [];
   onConflict = vi.fn();
+  onGone = vi.fn();
 });
 
 afterEach(() => {
@@ -155,6 +157,55 @@ describe('failures', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenLastCalledWith(draft('a', 'new'));
+  });
+});
+
+describe('gone notes (CNOTE-6)', () => {
+  test('AC-11: a save to a note that no longer exists drops the draft and does not retry', async () => {
+    save.mockResolvedValueOnce({ status: 'gone' });
+    const saver = setup();
+
+    saver.change(draft('a', 'x'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onGone).toHaveBeenCalledWith(draft('a', 'x'));
+    expect(saver.isDirty('a')).toBe(false);
+    expect(statuses.at(-1)).toBe('saved');
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  test('AC-11: edits typed while the save was in flight are dropped too', async () => {
+    const first = deferred<SaveResult>();
+    save.mockImplementationOnce(() => first.promise);
+    const saver = setup();
+
+    saver.change(draft('a', 'x'));
+    await vi.advanceTimersByTimeAsync(1000);
+    saver.change(draft('a', 'xy'));
+    first.resolve({ status: 'gone' });
+    await expect(saver.flush()).resolves.toBe(true);
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(onGone).toHaveBeenCalledTimes(1);
+    expect(saver.hasPending()).toBe(false);
+    expect(saver.draft('a')).toBeUndefined();
+  });
+
+  test('AC-8: a draft merged over a trashed server note keeps it in Trash', () => {
+    const saver = setup();
+    saver.change(draft('a', 'mine', 2));
+    const server = { ...note('a', 2, 'theirs'), deletedAt: new Date(5) };
+    expect({ ...server, ...saver.draft('a') }).toEqual({ ...server, content: 'mine' });
+  });
+
+  test('AC-11: other notes keep saving', async () => {
+    save.mockResolvedValueOnce({ status: 'gone' });
+    const saver = setup();
+    saver.change(draft('a', 'x'));
+    saver.change(draft('b', 'y'));
+    await expect(saver.flush()).resolves.toBe(true);
+    expect(save.mock.calls.map(([d]) => d.id)).toEqual(['a', 'b']);
   });
 });
 

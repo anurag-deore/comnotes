@@ -8,10 +8,12 @@ interface AutosaverOptions {
   retryMs: number;
   onStatus: (status: SaveStatus) => void;
   onConflict: (result: Extract<SaveResult, { status: 'conflict' }>) => void;
+  // The note was deleted for good; its unsaved draft has been dropped
+  onGone: (draft: NoteDraft) => void;
 }
 
 // Debounced per-note saving, kept free of React and Firebase so it can be unit tested
-export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict }: AutosaverOptions) {
+export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict, onGone }: AutosaverOptions) {
   const pending = new Map<string, NoteDraft>();
   const inFlight = new Map<string, Promise<void>>();
   // The draft each in-flight save is writing, so draft() can still return it
@@ -41,6 +43,14 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict }
       failed = false;
       if (result.status === 'saved') {
         revs.set(id, result.rev);
+        return;
+      }
+      if (result.status === 'gone') {
+        // Retrying can never succeed, so drop this note's edits, including any typed meanwhile
+        revs.delete(id);
+        pending.delete(id);
+        sending.delete(id);
+        onGone(draft);
         return;
       }
       revs.set(id, result.server.rev);
