@@ -29,7 +29,10 @@ export default function QuillEditor({ value, onChange }: QuillEditorProps) {
     <ReactQuill
       theme="snow"
       value={value}
-      onChange={onChange}
+      // Only real typing counts; loading or normalising content must not trigger a save
+      onChange={(content, _delta, source) => {
+        if (source === 'user') onChange(content);
+      }}
       modules={modules}
       formats={NOTE_FORMATS}
       className="h-[calc(100vh-12rem)]"

@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react'; // Import useMemo
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { collection, query, orderBy, getDocs, addDoc, doc, Timestamp, writeBatch } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { createNote, subscribeNotes } from '@/lib/notes';
+import type { SaveStatus } from '@/lib/autosave';
+import { useAutosave } from '@/hooks/useAutosave';
 import { Note } from '@/types/note';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,6 +16,13 @@ const QuillEditor = dynamic(() => import('@/app/components/QuillEditor'), {
   loading: () => <div>Loading editor...</div>,
 });
 
+const saveLabel = (status: SaveStatus) => {
+  if (status === 'pending' || status === 'saving') return 'Saving…';
+  if (status === 'saved') return 'Saved';
+  if (status === 'error') return navigator.onLine ? 'Save failed – retrying' : 'Offline – not saved';
+  return '';
+};
+
 export default function NotesPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -22,9 +30,16 @@ export default function NotesPage() {
   // Store only the ID of the selected note
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const initialFetchAndSelectDone = useRef(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // On a conflict the server version replaces ours and our version shows up as a copy
+  const { status, change, isDirty } = useAutosave(({ server, copy }) => {
+    setLocalNotes(prevNotes => [
+      copy,
+      ...prevNotes.filter(note => note.id !== copy.id).map(note => (note.id === server.id ? server : note)),
+    ]);
+    toast.error(`"${server.title}" was changed elsewhere. Your version was saved as "${copy.title}".`);
+  });
 
   // Derive the selected note object from localNotes based on selectedNoteId
   const selectedNote = useMemo(() => {
@@ -34,128 +49,56 @@ export default function NotesPage() {
   // Title input value, derived from the selected note
   const localTitle = selectedNote?.title ?? '';
 
-  // Load notes from Firebase on initial load (fetch once)
+  // Keep the list live; changes from other tabs and devices arrive here
   useEffect(() => {
-    if (initialFetchAndSelectDone.current) {
-      return;
-    }
-
     if (!isAuthenticated) {
       router.push('/');
       return;
     }
 
-    const fetchNotes = async () => {
-      setIsLoading(true);
-      try {
-        const q = query(collection(db, 'notes'), orderBy('updatedAt', 'desc'));
-        const querySnapshot = await getDocs(q);
-
-        const notesData = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-            createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date(),
-            updatedAt: data.updatedAt instanceof Timestamp ? data.updatedAt.toDate() : new Date()
-          };
-        }) as Note[];
-
-        setLocalNotes(notesData);
-
-        // Select the first note by default if notes exist, ONLY on initial load
-        if (notesData.length > 0) {
-          // Set the ID of the selected note
-          setSelectedNoteId(notesData[0].id);
-        } else {
-          setSelectedNoteId(null);
+    let isFirstSnapshot = true;
+    return subscribeNotes(
+      (serverNotes) => {
+        // A note with unsaved local edits keeps our copy until its save lands
+        setLocalNotes(prevNotes =>
+          serverNotes.map(note => (isDirty(note.id) && prevNotes.find(prev => prev.id === note.id)) || note)
+        );
+        if (isFirstSnapshot) {
+          isFirstSnapshot = false;
+          // Select the first note by default, only on initial load
+          setSelectedNoteId(serverNotes[0]?.id ?? null);
+          setIsLoading(false);
         }
-
-        setIsLoading(false);
-        initialFetchAndSelectDone.current = true;
-        toast.success('Notes loaded successfully');
-
-      } catch (error) {
+      },
+      (error) => {
         setIsLoading(false);
         toast.error('Failed to load notes');
         console.error('Error loading notes:', error);
-      }
-    };
+      },
+    );
+  }, [router, isAuthenticated, isDirty]);
 
-    fetchNotes();
-
-  }, [router, isAuthenticated]); // Dependencies remain the same
-
+  // Applies an edit locally and queues an autosave of just that note
+  const updateSelectedNote = (fields: Partial<Pick<Note, 'title' | 'content'>>) => {
+    if (!selectedNote) return;
+    const updated = { ...selectedNote, ...fields };
+    setLocalNotes(prevNotes => prevNotes.map(note => (note.id === updated.id ? updated : note)));
+    change({ id: updated.id, title: updated.title, content: updated.content, rev: updated.rev });
+  };
 
   // Handles changes in the Quill editor content
-  const handleEditorChange = (content: string) => {
-    if (selectedNoteId) {
-      // Update local state for the selected note's content based on ID
-      setLocalNotes(prevNotes =>
-        prevNotes.map(note => {
-          if (note.id === selectedNoteId) {
-            return {
-              ...note,
-              content: content
-            };
-          }
-          return note;
-        })
-      );
-      // No need to call setSelectedNote here, as selectedNote is derived
-    }
-  };
+  const handleEditorChange = (content: string) => updateSelectedNote({ content });
 
-  // Syncs local changes back to Firebase
-  const syncNotes = async () => {
-    setIsSyncing(true);
-    const syncToast = toast.loading('Syncing notes...');
-
-    try {
-      const batch = writeBatch(db);
-
-      // Iterate through the localNotes and prepare updates for the batch
-      localNotes.forEach(note => {
-        const noteRef = doc(db, 'notes', note.id);
-        batch.update(noteRef, {
-          title: note.title,
-          content: note.content || '',
-          updatedAt: Timestamp.now(),
-        });
-      });
-
-      await batch.commit();
-      toast.success('Notes synced successfully', { id: syncToast });
-    } catch (error) {
-      console.error('Error syncing notes:', error);
-      toast.error('Failed to sync notes', { id: syncToast });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
+  // Handles changes to the note title input
+  const handleTitleChange = (newTitle: string) => updateSelectedNote({ title: newTitle });
 
   // Creates a new note in Firebase and updates local state
   const createNewNote = async () => {
     const createToast = toast.loading('Creating new note...');
 
     try {
-      const newNoteData = {
-        title: 'Untitled Note',
-        content: '',
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-      };
-
-      const docRef = await addDoc(collection(db, 'notes'), newNoteData);
-
-      const createdNote: Note = {
-        id: docRef.id,
-        ...newNoteData,
-        createdAt: newNoteData.createdAt.toDate(),
-        updatedAt: newNoteData.updatedAt.toDate()
-      };
-
-      setLocalNotes([createdNote, ...localNotes]);
+      const createdNote = await createNote();
+      setLocalNotes(prevNotes => [createdNote, ...prevNotes.filter(note => note.id !== createdNote.id)]);
       // Set the ID of the newly created note as selected
       setSelectedNoteId(createdNote.id);
 
@@ -166,25 +109,6 @@ export default function NotesPage() {
     }
   };
 
-  // Handles changes to the note title input
-  const handleTitleChange = (newTitle: string) => {
-    if (selectedNoteId) {
-      // Update local state for the selected note's title based on ID
-      setLocalNotes(prevNotes =>
-        prevNotes.map(note => {
-          if (note.id === selectedNoteId) {
-            return {
-              ...note,
-              title: newTitle
-            };
-          }
-          return note;
-        })
-      );
-      // No need to call setSelectedNote here, as selectedNote is derived
-    }
-  };
-
   // Handles selecting a note from the sidebar list
   const handleNoteSelect = (note: Note) => {
     // Set the ID of the selected note
@@ -192,11 +116,8 @@ export default function NotesPage() {
   };
 
   // Helper function to format dates
-  const formatDate = (date: Date | Timestamp | null | undefined) => {
-    if (!date) return 'No date';
-    const jsDate = date instanceof Timestamp ? date.toDate() : date;
-    if (!(jsDate instanceof Date)) return 'Invalid date';
-    return jsDate.toLocaleDateString('en-US', {
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric'
@@ -221,19 +142,10 @@ export default function NotesPage() {
         <div className={`p-4 space-y-2`}>
           <button
             onClick={createNewNote}
-            disabled={isSyncing}
-            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition-colors"
             title="New Note"
           >
             New Note
-          </button>
-          <button
-            onClick={syncNotes}
-            disabled={isSyncing || localNotes.length === 0}
-            className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Sync Notes"
-          >
-            {isSyncing ? 'Syncing...' : 'Sync Notes'}
           </button>
         </div>
         <div className="overflow-y-auto h-[calc(100vh-8rem)] flex-1">
@@ -274,6 +186,12 @@ export default function NotesPage() {
                 className="text-2xl font-bold p-4 flex-1 focus:outline-none focus:border-indigo-500 bg-white text-gray-900 placeholder-gray-400"
                 placeholder="Enter note title"
               />
+              <span
+                className={`px-4 text-sm whitespace-nowrap ${status === 'error' ? 'text-red-600' : 'text-gray-500'}`}
+                role="status"
+              >
+                {saveLabel(status)}
+              </span>
             </div>
             <div className="flex-1 overflow-y-auto">
               {selectedNoteId && ( // Only render Quill if a note ID is selected
