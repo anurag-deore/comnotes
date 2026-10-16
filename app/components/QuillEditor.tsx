@@ -1,6 +1,7 @@
 'use client';
 import ReactQuill, { Quill } from 'react-quill-new';
 import MagicUrl from "quill-magic-url";
+import { NOTE_FORMATS } from '@/lib/noteHtml';
 
 Quill.register("modules/magicUrl", MagicUrl);
  
@@ -30,6 +31,7 @@ export default function QuillEditor({ value, onChange }: QuillEditorProps) {
       value={value}
       onChange={onChange}
       modules={modules}
+      formats={NOTE_FORMATS}
       className="h-[calc(100vh-12rem)]"
     />
   );
