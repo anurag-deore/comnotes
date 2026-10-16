@@ -36,7 +36,7 @@ The ticket asked for GitHub Actions deploys with the Vercel CLI (`VERCEL_TOKEN`/
 - [x] AC-3 `npm run deploy:rules` exits non-zero with a clear message while `firestore.rules` contains `REPLACE_WITH_OWNER_UID`, without calling firebase.
 - [x] AC-4 `firestore.rules` still returns `'REPLACE_WITH_OWNER_UID'`.
 - [x] AC-5 README explains: PRs get Vercel previews, `main` gets a production build that is only promoted once the five CI checks pass, the Deployment Checks setup, and the manual rules deploy.
-- [ ] AC-6 `npm test`, `npm run lint`, `npm run typecheck`, `npm run build` pass locally, and all five CI jobs pass on the PR.
+- [x] AC-6 `npm test`, `npm run lint`, `npm run typecheck`, `npm run build` pass locally, and all five CI jobs pass on the PR.
 - [ ] AC-7 (manual, user) Deployment Checks on in Vercel for `lint`, `typecheck`, `unit-tests`, `build`, `rules-tests`, with automatic production aliasing on.
 
 ## Design
