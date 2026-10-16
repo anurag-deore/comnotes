@@ -5,7 +5,3 @@ export interface Note {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export interface Pin {
-  value: string;
-} 

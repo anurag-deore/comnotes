@@ -2,29 +2,25 @@
 
 import { useState } from 'react';
 import { Lock } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { useAuth } from '@/contexts/AuthContext';
+import { unlock } from '@/lib/auth';
 
 export default function PinLock() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
-  const { login } = useAuth();
+  const [isUnlocking, setIsUnlocking] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsUnlocking(true);
 
+    // On success the auth state change redirects to /notes
     try {
-      const pinDoc = await getDoc(doc(db, 'pin', 'default'));
-      if (pinDoc.exists() && pinDoc.data().value === pin) {
-        login();
-      } else {
-        setError('Invalid PIN');
-      }
+      await unlock(pin);
     } catch (e) {
-      console.error('Error verifying PIN:', e);
-      setError('Error verifying PIN');
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsUnlocking(false);
     }
   };
 
@@ -45,7 +41,6 @@ export default function PinLock() {
               onChange={(e) => setPin(e.target.value)}
               className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
               placeholder="Enter your PIN"
-              maxLength={6}
             />
           </div>
           {error && (
@@ -54,9 +49,10 @@ export default function PinLock() {
           <div>
             <button
               type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+              disabled={isUnlocking}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Unlock
+              {isUnlocking ? 'Unlocking...' : 'Unlock'}
             </button>
           </div>
         </form>

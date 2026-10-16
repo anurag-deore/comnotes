@@ -1,12 +1,14 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { onAuthStateChanged } from 'firebase/auth';
+import { getFirebaseAuth } from '@/lib/firebase';
+import { lock } from '@/lib/auth';
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: () => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -15,18 +17,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const router = useRouter();
 
-  const login = () => {
-    setIsAuthenticated(true);
-    router.push('/notes');
-  };
+  // Firebase Auth is the source of truth; pages redirect when this flips
+  useEffect(() => onAuthStateChanged(getFirebaseAuth(), (user) => setIsAuthenticated(user !== null)), []);
 
-  const logout = () => {
-    setIsAuthenticated(false);
+  const logout = async () => {
+    await lock();
     router.push('/');
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, logout }}>
       {children}
     </AuthContext.Provider>
   );
