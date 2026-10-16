@@ -36,7 +36,7 @@ The PIN is the password of one Firebase Auth email/password user, the owner. The
 - [x] AC-4 `isAuthenticated` comes from `onAuthStateChanged`, not a local flag. Logging out calls `signOut` and returns to `/`.
 - [x] AC-5 The PIN input accepts more than 6 characters (Firebase's minimum is 6; longer is recommended in the README).
 - [x] AC-6 `firestore.rules` allows read and write on `notes/{id}` only when `request.auth.uid` equals the owner uid, and denies every other path, including `pin/*`.
-- [ ] AC-7 (deferred to CNOTE-27: tests are written in `tests/rules/`, but running them needs JDK 21+, and only JDK 17 was available; user chose to skip on 2026-10-16) Emulator tests prove AC-6: anonymous read and write of notes are denied, another signed-in user is denied, the owner is allowed, and the owner is denied on `pin/default`.
+- [x] AC-7 (run in CI by CNOTE-9/CNOTE-27 on Temurin JDK 21, 5/5 pass, 2026-10-16; originally deferred because only JDK 17 was available locally) Emulator tests prove AC-6: anonymous read and write of notes are denied, another signed-in user is denied, the owner is allowed, and the owner is denied on `pin/default`.
 - [x] AC-8 `scripts/init-pin.ts`, the `init-pin` npm script, the `Pin` type and `dotenv` are removed.
 - [x] AC-9 The README documents one-time setup: enable the Email/Password provider, create the owner user with the PIN as its password, set `NEXT_PUBLIC_OWNER_EMAIL`, put the owner uid in `firestore.rules`, deploy the rules, and delete the `pin` collection in the console.
 - [x] AC-10 `npm test`, `npm run lint` and `npm run build` pass.

@@ -28,14 +28,14 @@ Every PR and every push to `main` is checked automatically: lint, typecheck, uni
 - Installing JDK 21 locally (no system software installs here; the local run is a manual follow-up).
 
 ## Acceptance criteria
-- [ ] AC-1 `.github/workflows/ci.yml` runs on every pull request and on push to `main`, with separate jobs `lint`, `typecheck`, `unit-tests`, `build` and `rules-tests`.
-- [ ] AC-2 `npm run typecheck` runs `tsc --noEmit` and passes.
-- [ ] AC-3 The `build` job passes with no Firebase env vars or secrets.
-- [ ] AC-4 The `rules-tests` job installs Temurin JDK 21, uses firebase-tools from devDependencies, and runs `npm run test:rules`; all 5 rules tests pass in CI. (CNOTE-27; also satisfies CNOTE-3 AC-7.)
-- [ ] AC-5 `firestore.rules` still allows only the owner uid on `notes/{id}` and denies everything else; `ownerUid()` still returns the `'REPLACE_WITH_OWNER_UID'` placeholder.
-- [ ] AC-6 A newer push to the same ref cancels the run in progress (`concurrency`). Actions are pinned to major versions. npm is cached, and so is the emulator jar.
-- [ ] AC-7 No hacks: no `continue-on-error`, no skipped tests, no eslint-disable, no npm overrides.
-- [ ] AC-8 `npm test`, `npm run lint`, `npm run typecheck` and `npm run build` pass locally.
+- [x] AC-1 `.github/workflows/ci.yml` runs on every pull request and on push to `main`, with separate jobs `lint`, `typecheck`, `unit-tests`, `build` and `rules-tests`.
+- [x] AC-2 `npm run typecheck` runs `tsc --noEmit` and passes.
+- [x] AC-3 The `build` job passes with no Firebase env vars or secrets.
+- [x] AC-4 The `rules-tests` job installs Temurin JDK 21, uses firebase-tools from devDependencies, and runs `npm run test:rules`; all 5 rules tests pass in CI. (CNOTE-27; also satisfies CNOTE-3 AC-7.)
+- [x] AC-5 `firestore.rules` still allows only the owner uid on `notes/{id}` and denies everything else; `ownerUid()` still returns the `'REPLACE_WITH_OWNER_UID'` placeholder.
+- [x] AC-6 A newer push to the same ref cancels the run in progress (`concurrency`). Actions are pinned to major versions. npm is cached, and so is the emulator jar.
+- [x] AC-7 No hacks: no `continue-on-error`, no skipped tests, no eslint-disable, no npm overrides.
+- [x] AC-8 `npm test`, `npm run lint`, `npm run typecheck` and `npm run build` pass locally.
 - [ ] AC-9 (manual, user) Branch protection on `main` requires the five checks (command below).
 - [ ] AC-10 (manual, user) `npm run test:rules` passes locally on JDK 21+ (CNOTE-27 "locally").
 
