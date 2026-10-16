@@ -80,6 +80,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) npm run test:rules
 ```
 
 ## Assumptions / open questions
+- First CI run failed at `npm ci` in every job: Node 24.21's npm 11.19 found `@emnapi/core`/`@emnapi/runtime` (optional deps of the wasm fallbacks of sharp and tailwind oxide) missing from `package-lock.json`; local npm 11.6 didn't check this. Fixed by re-syncing the lock with `npx npm@11.19.0 install --package-lock-only` (additive entries only, no version changes to installed packages).
 - The tests read the owner uid from `firestore.rules`, so with the placeholder they authenticate as `REPLACE_WITH_OWNER_UID` and still prove the rule. When the user commits a real uid locally, the tests follow it.
 - `strict: true` makes PRs be up to date with `main` before merge; drop it if that is too strict for a single-owner repo.
 - Branch protection on a private repo needs a paid GitHub plan; on a public repo it is free.
