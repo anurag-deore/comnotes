@@ -1,15 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { unlock } from '@/lib/auth';
 import { useAuth } from '@/contexts/AuthContext';
+import { Button } from '@/components/ui/Button';
 
 export default function PinLock() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
   const { lockedForInactivity } = useAuth();
+  const inputId = useId();
+  const errorId = useId();
+  const hintId = useId();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,42 +30,47 @@ export default function PinLock() {
     }
   };
 
+  const describedBy = [lockedForInactivity && hintId, error && errorId].filter(Boolean).join(' ') || undefined;
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow-lg border border-gray-200">
-        <div className="text-center">
-          <Lock className="mx-auto h-12 w-12 text-indigo-600" />
-          <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
-            Enter PIN
-          </h2>
-          {lockedForInactivity && (
-            <p className="mt-2 text-sm text-gray-500">Locked after inactivity</p>
-          )}
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <input
-              type="password"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-              placeholder="Enter your PIN"
-            />
-          </div>
+    <main className="flex min-h-dvh items-center justify-center bg-canvas p-4">
+      {/* Auth form card: sage card on white, labelled input with an ink border */}
+      <div className="w-full max-w-sm rounded-xl bg-canvas-soft p-6 md:p-8">
+        <span className="flex size-12 items-center justify-center rounded-full bg-canvas">
+          <Lock aria-hidden className="size-6 text-ink" />
+        </span>
+        <h1 className="mt-6 text-display-xs text-ink">Unlock ComNotes</h1>
+        {lockedForInactivity && (
+          <p id={hintId} className="mt-1 text-body-sm text-body">
+            Locked after inactivity.
+          </p>
+        )}
+        <form className="mt-6" onSubmit={handleSubmit} noValidate>
+          <label htmlFor={inputId} className="block text-body-sm font-semibold text-ink">
+            PIN
+          </label>
+          <input
+            id={inputId}
+            type="password"
+            inputMode="numeric"
+            autoComplete="current-password"
+            autoFocus
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={describedBy}
+            className="mt-2 block w-full rounded-md border border-ink bg-canvas px-4 py-3 text-body-md text-ink aria-invalid:border-negative"
+          />
           {error && (
-            <p className="text-red-500 text-sm text-center">{error}</p>
+            <p id={errorId} role="alert" className="mt-2 text-body-sm text-negative-deep">
+              {error}
+            </p>
           )}
-          <div>
-            <button
-              type="submit"
-              disabled={isUnlocking}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isUnlocking ? 'Unlocking...' : 'Unlock'}
-            </button>
-          </div>
+          <Button type="submit" variant="primary" disabled={isUnlocking} className="mt-6 w-full">
+            {isUnlocking ? 'Unlocking…' : 'Unlock'}
+          </Button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }

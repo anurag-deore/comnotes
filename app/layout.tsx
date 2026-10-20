@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { Georama } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { AutosaveProvider } from '@/contexts/AutosaveContext';
 
-const inter = Georama({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], weight: ["400", "600", "900"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Secure Notes",
+  title: "ComNotes",
   description: "A secure note-taking application",
 };
 
@@ -18,12 +18,31 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="light">
-      <body className={`${inter.className} bg-white text-gray-900`}>
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans antialiased">
         <AutosaveProvider>
           <AuthProvider>
             {children}
-            <Toaster position="top-right" />
+            {/* Quiet toasts: small white cards, bottom centre, only for things that need attention */}
+            <Toaster
+              position="bottom-center"
+              gutter={8}
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: 'var(--canvas)',
+                  color: 'var(--ink)',
+                  borderRadius: 'var(--radius-xl)',
+                  boxShadow: 'var(--elevation-raised)',
+                  padding: '12px 16px',
+                  fontSize: '14px',
+                  lineHeight: '20px',
+                  maxWidth: 'min(28rem, calc(100vw - 32px))',
+                },
+                success: { iconTheme: { primary: 'var(--positive)', secondary: 'var(--canvas)' } },
+                error: { duration: 6000, iconTheme: { primary: 'var(--negative)', secondary: 'var(--canvas)' } },
+              }}
+            />
           </AuthProvider>
         </AutosaveProvider>
       </body>
