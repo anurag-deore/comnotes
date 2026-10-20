@@ -6,6 +6,8 @@
  * Dark mode (CNOTE-15) redefines these variables and nothing else.
  */
 :root {
+  color-scheme: light;
+
   /* Surfaces */
   --canvas: #ffffff;
   --canvas-soft: #e8ebe6;
@@ -44,6 +46,42 @@
   --motion-ease-move: cubic-bezier(0.2, 0, 0, 1);
 }
 
+/*
+ * Dark theme (CNOTE-15): the same roles on near-black olive ink. data-theme is set before first paint
+ * by the script in app/layout.tsx (System is resolved there and in lib/themeStore.ts), so this is the
+ * only dark block. Only tokens defined above are redefined; tests/unit/themeContrast.test.ts checks AA.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Page stays --canvas-soft and cards --canvas, one step lighter, as in light mode */
+  --canvas: #1b1d18;
+  --canvas-soft: #121410;
+  --overlay: rgb(0 0 0 / 0.6);
+
+  --ink: #e8ebe6;
+  --body: #b5b9b1;
+  --mute: #868a83;
+
+  /* Lime stays the one accent, always with ink-dark text on it */
+  --primary: #9fe870;
+  --primary-hover: #cdffad;
+  --on-primary: #0e0f0c;
+  --primary-pale: #24361a;
+
+  --positive: #4cc46a;
+  --positive-deep: #8fe0a2;
+  --warning: #ffd11a;
+  --warning-content: #4a3b1c;
+  --negative: #f0686d;
+  --negative-deep: #ffa3a6;
+  --negative-pale: #3a1517;
+  --on-negative: #0e0f0c;
+
+  /* A shadow alone vanishes on near-black: a hairline lifts popovers, toasts and the drawer */
+  --elevation-raised: 0 0 0 1px rgb(232 235 230 / 0.1), 0 8px 24px rgb(0 0 0 / 0.5);
+}
+
 @theme inline {
   --color-canvas: var(--canvas);
   --color-canvas-soft: var(--canvas-soft);
@@ -68,6 +106,8 @@
   --shadow-raised: var(--elevation-raised);
 
   --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  /* Note content (CNOTE-15): a reading face for what you write; the chrome stays in Inter */
+  --font-reading: var(--font-open-sans), system-ui, -apple-system, sans-serif;
 
   /* Radii; spacing stays on Tailwind's 4px base (--spacing: 0.25rem) */
   --radius-sm: 8px;
@@ -187,6 +227,11 @@
   animation: none;
 }
 
+/* Theme switch (CNOTE-15): the new theme fades in over the old one. Skipped with reduced motion */
+html[data-motion="theme"]::view-transition-new(root) {
+  animation: fade-in var(--motion-base) var(--motion-ease-move) both;
+}
+
 [data-motion-row] {
   view-transition-class: note-row;
 }
@@ -248,6 +293,11 @@ html[data-motion="sidebar"] #note-editor {
     font-feature-settings: "calt";
   }
 
+  /* Lime-tinted selection; ink stays legible on it in both themes */
+  ::selection {
+    background-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  }
+
   :focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
@@ -256,7 +306,7 @@ html[data-motion="sidebar"] #note-editor {
 
 /* Note content (Tiptap), scoped so nothing leaks into the app chrome */
 .note-editor {
-  @apply mx-auto min-h-full max-w-3xl px-5 py-6 text-body-md text-ink outline-none md:px-12 md:py-10;
+  @apply mx-auto min-h-full max-w-3xl px-5 py-6 font-reading text-body-md text-ink outline-none md:px-12 md:py-10;
 }
 
 .note-editor > * + * { @apply mt-3; }

@@ -7,6 +7,7 @@ import type { Note } from '@/types/note';
 import { Button, IconButton } from '@/components/ui/Button';
 import { NoteListItem } from '@/components/notes/NoteListItem';
 import { TrashView } from '@/components/notes/TrashView';
+import { ThemeSwitcher } from '@/components/ui/ThemeSwitcher';
 
 export interface SidebarProps {
   notes: Note[];
@@ -64,6 +65,8 @@ export function Sidebar({
           </ul>
         )}
       </nav>
+
+      <ThemeSwitcher />
 
       <div className="flex gap-2">
         {!showTrash && (

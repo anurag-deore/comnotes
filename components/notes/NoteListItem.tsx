@@ -38,7 +38,7 @@ export const NoteListItem = memo(function NoteListItem({ note, active, now, onSe
             {formatRelativeTime(note.updatedAt, now)}
           </time>
         </span>
-        <span className="truncate text-body-sm text-body">{preview}</span>
+        <span className="truncate font-reading text-body-sm text-body">{preview}</span>
       </button>
     </li>
   );

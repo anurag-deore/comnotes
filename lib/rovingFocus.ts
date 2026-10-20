@@ -14,3 +14,10 @@ export function nextFocusIndex(current: number, key: string, count: number): num
       return null;
   }
 }
+
+// Same movement for an ARIA radio group, where Up/Down move like Left/Right
+const RADIO_KEYS: Record<string, string> = { ArrowDown: 'ArrowRight', ArrowUp: 'ArrowLeft' };
+
+export function nextRadioIndex(current: number, key: string, count: number): number | null {
+  return nextFocusIndex(current, RADIO_KEYS[key] ?? key, count);
+}
