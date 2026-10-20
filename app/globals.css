@@ -34,6 +34,14 @@
 
   --focus-ring: var(--ink);
   --elevation-raised: 0 8px 24px rgb(14 15 12 / 0.12);
+
+  /* Motion (CNOTE-16): calm and quick. Ease out on the way in, ease in on the way out */
+  --motion-fast: 120ms;   /* hover, press, small exits */
+  --motion-base: 180ms;   /* popover, toast, save status, list rows */
+  --motion-slow: 240ms;   /* drawer, sidebar, unlock card */
+  --motion-ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --motion-ease-move: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @theme inline {
@@ -79,18 +87,158 @@
   --text-caption: 0.75rem;
   --text-caption--line-height: 1rem;
 
-  --animate-drawer-in: drawer-in 200ms ease-out;
-  --animate-fade-in: fade-in 200ms ease-out;
+  /* Motion: transition-* utilities default to the fast token; animations use the keyframes below */
+  --default-transition-duration: var(--motion-fast);
+  --default-transition-timing-function: var(--motion-ease-move);
+  --ease-enter: var(--motion-ease-enter);
+  --ease-exit: var(--motion-ease-exit);
+  --ease-move: var(--motion-ease-move);
+  --animate-fade-in: fade-in var(--motion-base) var(--motion-ease-enter) both;
+  --animate-fade-out: fade-out var(--motion-fast) var(--motion-ease-exit) both;
+  --animate-drawer-in: drawer-in var(--motion-slow) var(--motion-ease-enter) both;
+  --animate-drawer-out: drawer-out var(--motion-base) var(--motion-ease-exit) both;
+  --animate-pop-in: pop-in var(--motion-base) var(--motion-ease-enter) both;
+  --animate-pop-out: pop-out var(--motion-fast) var(--motion-ease-exit) both;
+  --animate-card-in: card-in var(--motion-slow) var(--motion-ease-enter) both;
+  --animate-app-in: fade-in var(--motion-slow) var(--motion-ease-enter) both;
+}
+
+/*
+ * Keyframes. Anything that moves (translate, scale, shake) is redefined as a fade below for
+ * prefers-reduced-motion, so the same utilities work in both cases.
+ */
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes fade-out {
+  to { opacity: 0; }
 }
 
 @keyframes drawer-in {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+  from { opacity: 0.6; transform: translateX(-100%); }
 }
 
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@keyframes drawer-out {
+  to { opacity: 0.6; transform: translateX(-100%); }
+}
+
+/* Popover and the Saved check: a small scale from the trigger */
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+}
+
+@keyframes pop-out {
+  to { opacity: 0; transform: scale(0.96); }
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+}
+
+@keyframes toast-out {
+  to { opacity: 0; transform: scale(0.96); }
+}
+
+/* Note rows entering and leaving (View Transitions) */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(-6px); }
+}
+
+@keyframes row-out {
+  to { opacity: 0; transform: scale(0.96); }
+}
+
+/* Desktop sidebar sliding out and in (View Transitions) */
+@keyframes sidebar-in {
+  from { opacity: 0; transform: translateX(-24px); }
+}
+
+@keyframes sidebar-out {
+  to { opacity: 0; transform: translateX(-24px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes drawer-in { from { opacity: 0; } }
+  @keyframes drawer-out { to { opacity: 0; } }
+  @keyframes pop-in { from { opacity: 0; } }
+  @keyframes pop-out { to { opacity: 0; } }
+  @keyframes card-in { from { opacity: 0; } }
+  @keyframes toast-in { from { opacity: 0; } }
+  @keyframes toast-out { to { opacity: 0; } }
+  @keyframes row-in { from { opacity: 0; } }
+  @keyframes row-out { to { opacity: 0; } }
+  @keyframes sidebar-in { from { opacity: 0; } }
+  @keyframes sidebar-out { to { opacity: 0; } }
+
+  html { scroll-behavior: auto; }
+}
+
+/*
+ * View Transitions (lib/motion.ts, lib/listMotion.ts). Only named parts animate; the rest of the
+ * page swaps in place, so typing and the editor never cross-fade.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+[data-motion-row] {
+  view-transition-class: note-row;
+}
+
+::view-transition-group(.note-row) {
+  animation-duration: var(--motion-base);
+  animation-timing-function: var(--motion-ease-move);
+}
+
+::view-transition-new(.note-row):only-child {
+  animation: row-in var(--motion-base) var(--motion-ease-enter) both;
+}
+
+::view-transition-old(.note-row):only-child {
+  animation: row-out var(--motion-fast) var(--motion-ease-exit) both;
+}
+
+html[data-motion="sidebar"] #notes-sidebar {
+  view-transition-name: notes-sidebar;
+}
+
+html[data-motion="sidebar"] #note-editor {
+  view-transition-name: editor-pane;
+}
+
+::view-transition-group(notes-sidebar),
+::view-transition-group(editor-pane) {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--motion-ease-move);
+}
+
+::view-transition-new(notes-sidebar):only-child {
+  animation: sidebar-in var(--motion-slow) var(--motion-ease-enter) both;
+}
+
+::view-transition-old(notes-sidebar):only-child {
+  animation: sidebar-out var(--motion-base) var(--motion-ease-exit) both;
+}
+
+/* The editor card changes width: keep its snapshots at natural size, anchored top-left, so text
+   isn't stretched; the group clips them while it resizes */
+::view-transition-group(editor-pane) {
+  overflow: clip;
+}
+
+::view-transition-old(editor-pane),
+::view-transition-new(editor-pane) {
+  width: auto;
+  height: auto;
+  object-fit: none;
+  object-position: left top;
+  animation-duration: var(--motion-slow);
 }
 
 @layer base {
@@ -103,15 +251,6 @@
   :focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, ::before, ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
   }
 }
 

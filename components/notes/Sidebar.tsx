@@ -45,7 +45,7 @@ export function Sidebar({
         New note
       </Button>
 
-      <nav aria-label={showTrash ? 'Trash' : 'Notes'} className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-1">
+      <nav aria-label={showTrash ? 'Trash' : 'Notes'} data-motion-viewport className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1 py-1">
         {showTrash ? (
           <>
             <Button variant="ghost" size="sm" onClick={() => onShowTrash(false)} className="mb-2 -ml-1">
@@ -107,11 +107,11 @@ export function MobileSidebar({ open, onOpenChange, onCloseAutoFocus, ...sidebar
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay motion-safe:animate-fade-in md:hidden" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in md:hidden" />
         <Dialog.Content
           aria-describedby={undefined}
           onCloseAutoFocus={onCloseAutoFocus}
-          className="fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] bg-canvas-soft shadow-raised motion-safe:animate-drawer-in md:hidden"
+          className="fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] bg-canvas-soft shadow-raised data-[state=closed]:animate-drawer-out data-[state=open]:animate-drawer-in md:hidden"
         >
           <Dialog.Title className="sr-only">Notes</Dialog.Title>
           <Sidebar

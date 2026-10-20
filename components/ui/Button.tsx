@@ -19,8 +19,10 @@ const SIZES: Record<Size, string> = {
   sm: 'min-h-11 px-4 py-1.5 text-body-sm',
 };
 
+// Colour eases on hover; a press sinks the button slightly (no movement with reduced motion)
 const BASE =
-  'inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors ' +
+  'inline-flex items-center justify-center gap-2 rounded-xl font-semibold ' +
+  'transition-[color,background-color,border-color,scale] motion-safe:enabled:active:scale-[0.97] ' +
   'disabled:cursor-not-allowed disabled:opacity-50';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

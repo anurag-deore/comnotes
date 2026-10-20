@@ -72,7 +72,7 @@ export function LinkPopover({ editor, pressed, tabIndex, onFocus }: LinkPopoverP
             event.preventDefault();
             editor.commands.focus();
           }}
-          className="z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl bg-canvas p-4 shadow-raised motion-safe:animate-fade-in"
+          className="z-50 w-80 max-w-[calc(100vw-2rem)] origin-(--radix-popover-content-transform-origin) rounded-xl bg-canvas p-4 shadow-raised data-[state=closed]:animate-pop-out data-[state=open]:animate-pop-in"
         >
           <form onSubmit={onSubmit} noValidate>
             <label htmlFor={inputId} className="block text-body-sm font-semibold text-ink">

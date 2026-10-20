@@ -1,10 +1,30 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { unlock } from '@/lib/auth';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
+import { cssDurationMs, prefersReducedMotion } from '@/lib/motion';
+
+// A short, soft side-to-side shake for a wrong PIN; skipped with reduced motion
+const SHAKE: Keyframe[] = [
+  { transform: 'translateX(0)' },
+  { transform: 'translateX(-6px)' },
+  { transform: 'translateX(5px)' },
+  { transform: 'translateX(-3px)' },
+  { transform: 'translateX(2px)' },
+  { transform: 'translateX(0)' },
+];
+
+// Duration and easing come from the motion tokens in globals.css
+function shakeOptions(): KeyframeAnimationOptions {
+  const tokens = getComputedStyle(document.documentElement);
+  return {
+    duration: cssDurationMs(tokens.getPropertyValue('--motion-slow'), 240),
+    easing: tokens.getPropertyValue('--motion-ease-move').trim() || 'ease-out',
+  };
+}
 
 export default function PinLock() {
   const [pin, setPin] = useState('');
@@ -14,6 +34,15 @@ export default function PinLock() {
   const inputId = useId();
   const errorId = useId();
   const hintId = useId();
+  const cardRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Wrong PIN: shake the card and put the cursor back in the PIN, selected, ready to retype
+  const rejectPin = () => {
+    if (!prefersReducedMotion(window)) cardRef.current?.animate(SHAKE, shakeOptions());
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +54,7 @@ export default function PinLock() {
       await unlock(pin);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      rejectPin();
     } finally {
       setIsUnlocking(false);
     }
@@ -35,7 +65,7 @@ export default function PinLock() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-canvas p-4">
       {/* Auth form card: sage card on white, labelled input with an ink border */}
-      <div className="w-full max-w-sm rounded-xl bg-canvas-soft p-6 md:p-8">
+      <div ref={cardRef} className="w-full max-w-sm animate-card-in rounded-xl bg-canvas-soft p-6 md:p-8">
         <span className="flex size-12 items-center justify-center rounded-full bg-canvas">
           <Lock aria-hidden className="size-6 text-ink" />
         </span>
@@ -50,6 +80,7 @@ export default function PinLock() {
             PIN
           </label>
           <input
+            ref={inputRef}
             id={inputId}
             type="password"
             inputMode="numeric"

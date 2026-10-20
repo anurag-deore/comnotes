@@ -29,15 +29,22 @@ export function SaveStatus({ status }: { status: Status }) {
   const { className, icon: Icon } = TONES[tone];
 
   return (
-    <span role="status" className={cn('flex shrink-0 items-center gap-1.5 text-body-sm whitespace-nowrap', className)}>
-      {Icon && (
-        <Icon
-          aria-hidden
-          className={cn('size-4', tone === 'busy' && 'motion-safe:animate-spin', tone === 'positive' && 'text-positive')}
-        />
-      )}
-      {/* Short label on phones, where the header is tight */}
-      <span className={cn(tone === 'negative' && 'max-sm:sr-only')}>{label}</span>
+    <span role="status" className={cn('flex shrink-0 items-center text-body-sm whitespace-nowrap', className)}>
+      {/* Keyed by tone: each new state fades in (Saving… → Saved), pending → saving doesn't re-animate */}
+      <span key={tone} className="flex animate-fade-in items-center gap-1.5">
+        {Icon && (
+          <Icon
+            aria-hidden
+            className={cn(
+              'size-4',
+              tone === 'busy' && 'motion-safe:animate-spin',
+              tone === 'positive' && 'animate-pop-in text-positive',
+            )}
+          />
+        )}
+        {/* Short label on phones, where the header is tight */}
+        <span className={cn(tone === 'negative' && 'max-sm:sr-only')}>{label}</span>
+      </span>
     </span>
   );
 }

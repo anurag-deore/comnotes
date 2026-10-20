@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { FileText, NotebookPen, Plus } from 'lucide-react';
 import {
@@ -17,16 +18,22 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { MobileSidebar, Sidebar } from '@/components/notes/Sidebar';
 import { EditorPane, SidebarButtons } from '@/components/notes/EditorPane';
 import { NotesSkeleton } from '@/components/notes/NotesSkeleton';
+import { animateListChange } from '@/lib/listMotion';
+import { noteListsChanged, prefersReducedMotion, runViewTransition } from '@/lib/motion';
+import { browserStorage, readSidebarHidden, writeSidebarHidden } from '@/lib/sidebarPreference';
 
 export default function NotesPage() {
   const router = useRouter();
   const { isAuthenticated, logout } = useAuth();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
+  // The latest list, ahead of React state while an animated update waits for its View Transition
+  const notesRef = useRef<Note[]>([]);
   // Store only the ID of the selected note
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // Desktop: sidebar hidden by the user. Phones: the notes drawer is open.
-  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+  // Desktop: sidebar hidden by the user (remembered in this browser). Phones: the notes drawer is open.
+  // Read on the client only matters after loading, as the skeleton doesn't show the sidebar.
+  const [isSidebarHidden, setIsSidebarHidden] = useState(() => readSidebarHidden(browserStorage()));
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   // A just-created note whose title gets focus
@@ -35,9 +42,23 @@ export default function NotesPage() {
   // Set when the drawer closes because a note was opened, so focus goes to the note, not the menu button
   const drawerClosedByNavigation = useRef(false);
 
+  // Every change to the notes goes through here. Adding, removing or re-ordering rows animates
+  // (View Transition, lib/listMotion.ts); edits that keep the order are applied as usual.
+  const commitNotes = useCallback((update: (prev: Note[]) => Note[], animate = true) => {
+    const prev = notesRef.current;
+    const next = update(prev);
+    notesRef.current = next;
+    if (!animate || !noteListsChanged(prev, next)) {
+      setLocalNotes(next);
+      return;
+    }
+    // The transition applies the latest list, so updates made while it starts aren't lost
+    animateListChange(() => flushSync(() => setLocalNotes(notesRef.current)));
+  }, []);
+
   // On a conflict the server version replaces ours and our version shows up as a copy
   const { status, change, draft } = useAutosave(({ server, copy }) => {
-    setLocalNotes(prevNotes => [
+    commitNotes(prevNotes => [
       copy,
       ...prevNotes.filter(note => note.id !== copy.id).map(note => (note.id === server.id ? server : note)),
     ]);
@@ -69,7 +90,8 @@ export default function NotesPage() {
       (serverNotes) => {
         // A note with unsaved edits shows them until its save lands, even after a lock and unlock.
         // Drafts carry no deletedAt, so the server decides whether the note is in Trash.
-        setLocalNotes(serverNotes.map(note => ({ ...note, ...draft(note.id) })));
+        // The first load isn't animated: the skeleton is showing
+        commitNotes(() => serverNotes.map(note => ({ ...note, ...draft(note.id) })), !isFirstSnapshot);
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
           // Select the first note by default, only on initial load
@@ -84,13 +106,13 @@ export default function NotesPage() {
         console.error('Error loading notes:', error);
       },
     );
-  }, [router, isAuthenticated, draft]);
+  }, [router, isAuthenticated, draft, commitNotes]);
 
   // Applies an edit locally and queues an autosave of just that note
   const updateSelectedNote = (fields: Partial<Pick<Note, 'title' | 'content'>>) => {
     if (!selectedNote) return;
     const updated = { ...selectedNote, ...fields };
-    setLocalNotes(prevNotes => prevNotes.map(note => (note.id === updated.id ? updated : note)));
+    commitNotes(prevNotes => prevNotes.map(note => (note.id === updated.id ? updated : note)));
     change({ id: updated.id, title: updated.title, content: updated.content, rev: updated.rev });
   };
 
@@ -110,7 +132,7 @@ export default function NotesPage() {
   const createNewNote = async () => {
     try {
       const createdNote = await createNote();
-      setLocalNotes(prevNotes => [createdNote, ...prevNotes.filter(note => note.id !== createdNote.id)]);
+      commitNotes(prevNotes => [createdNote, ...prevNotes.filter(note => note.id !== createdNote.id)]);
       setSelectedNoteId(createdNote.id);
       setFocusTitleId(createdNote.id);
       setShowTrash(false);
@@ -183,6 +205,17 @@ export default function NotesPage() {
 
   const clearFocusTitle = useCallback(() => setFocusTitleId(null), []);
 
+  // Hide/show the desktop sidebar: it slides while the editor card resizes (instant with reduced motion)
+  const toggleSidebar = () => {
+    const hidden = !isSidebarHidden;
+    writeSidebarHidden(browserStorage(), hidden);
+    runViewTransition(() => flushSync(() => setIsSidebarHidden(hidden)), {
+      doc: document,
+      reduced: prefersReducedMotion(window),
+      kind: 'sidebar',
+    });
+  };
+
   if (isLoading) return <NotesSkeleton />;
 
   const sidebarProps = {
@@ -200,7 +233,7 @@ export default function NotesPage() {
   };
   const toggles = {
     sidebarHidden: isSidebarHidden,
-    onToggleSidebar: () => setIsSidebarHidden(hidden => !hidden),
+    onToggleSidebar: toggleSidebar,
     onOpenDrawer: () => {
       drawerClosedByNavigation.current = false;
       setIsDrawerOpen(true);
@@ -208,7 +241,7 @@ export default function NotesPage() {
   };
 
   return (
-    <div className="flex h-dvh bg-canvas-soft text-ink">
+    <div className="flex h-dvh animate-app-in bg-canvas-soft text-ink">
       <a
         href="#note-editor"
         className="sr-only z-50 rounded-md bg-canvas px-4 py-3 font-semibold focus:not-sr-only focus:fixed focus:top-3 focus:left-3"

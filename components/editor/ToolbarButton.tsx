@@ -21,7 +21,8 @@ export function ToolbarButton({ label, icon: Icon, pressed, className, ...props 
       title={label}
       aria-pressed={pressed}
       className={cn(
-        'flex size-11 shrink-0 items-center justify-center rounded-sm text-body transition-colors md:size-9',
+        'flex size-11 shrink-0 items-center justify-center rounded-sm text-body md:size-9',
+        'transition-[color,background-color,scale] motion-safe:active:scale-[0.95]',
         'hover:bg-canvas-soft hover:text-ink aria-pressed:bg-ink aria-pressed:text-canvas',
         className,
       )}

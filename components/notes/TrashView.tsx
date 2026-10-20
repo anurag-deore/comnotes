@@ -60,7 +60,7 @@ export function TrashView({ notes, now, onRestore, onDeleteForever }: TrashViewP
       </div>
       <ul role="list" aria-label="Trash" className="flex flex-col gap-2">
         {notes.map((note) => (
-          <li key={note.id} className="rounded-sm bg-canvas px-4 py-3">
+          <li key={note.id} data-motion-row={note.id} className="rounded-sm bg-canvas px-4 py-3">
             <p className="truncate text-body-sm font-semibold text-ink">{displayTitle(note.title)}</p>
             <p className="text-caption text-body">
               <time dateTime={note.deletedAt.toISOString()} title={`Moved to Trash ${note.deletedAt.toLocaleString()}`}>

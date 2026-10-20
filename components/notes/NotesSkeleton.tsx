@@ -15,7 +15,7 @@ export function EditorSkeleton() {
 // First load of the notes list: the app's shape with placeholder rows
 export function NotesSkeleton() {
   return (
-    <div role="status" className="flex h-dvh bg-canvas-soft">
+    <div role="status" className="flex h-dvh animate-app-in bg-canvas-soft">
       <span className="sr-only">Loading notes…</span>
       <div className="hidden w-72 shrink-0 flex-col gap-4 p-3 md:flex lg:w-80">
         <Skeleton className="mx-2 mt-2 h-6 w-28 bg-canvas" />
