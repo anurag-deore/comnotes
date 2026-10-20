@@ -28,12 +28,28 @@ body {
   /* font-family: "PT Sans", sans-serif !important; */
 }
 
-.ql-container {
-  font-family: "Georama", sans-serif !important;
-  font-size: 1.05rem !important;
-  /* font-family: "PT Sans", sans-serif !important; */
+.note-editor {
+  @apply min-h-full px-6 py-4 outline-none;
+  font-family: "Georama", sans-serif;
+  font-size: 1.05rem;
 }
 
-.ql-editor li {
-  margin-bottom: 5px !important;
-}
+/* Tailwind's preflight resets these; minimal readable defaults until CNOTE-13 */
+.note-editor > * + * { @apply mt-2; }
+.note-editor h1 { @apply text-3xl font-bold; }
+.note-editor h2 { @apply text-2xl font-bold; }
+.note-editor h3 { @apply text-xl font-semibold; }
+.note-editor h4, .note-editor h5, .note-editor h6 { @apply text-lg font-semibold; }
+.note-editor ul { @apply list-disc pl-6; }
+.note-editor ol { @apply list-decimal pl-6; }
+.note-editor li { @apply mb-1; }
+.note-editor ul[data-type="taskList"] { @apply list-none pl-0; }
+.note-editor li[data-type="taskItem"] { @apply flex items-start gap-2; }
+.note-editor li[data-type="taskItem"] > label { @apply mt-1 select-none; }
+.note-editor li[data-type="taskItem"] > div { @apply flex-1; }
+.note-editor li[data-checked="true"] > div { @apply line-through opacity-60; }
+.note-editor blockquote { @apply border-l-4 border-gray-300 pl-4 text-gray-600; }
+.note-editor pre { @apply overflow-x-auto rounded bg-gray-100 p-3 font-mono text-sm; }
+.note-editor :not(pre) > code { @apply rounded bg-gray-100 px-1 font-mono text-sm; }
+.note-editor a { @apply text-indigo-600 underline; }
+.note-editor img { @apply inline max-w-full; }

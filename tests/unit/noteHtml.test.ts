@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { NOTE_FORMATS, noteHtmlToText } from '@/lib/noteHtml';
+import { noteHtmlToText } from '@/lib/noteHtml';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -33,21 +33,16 @@ describe('noteHtmlToText', () => {
     expect(noteHtmlToText('<p>&lt;img src=x onerror=alert(1)&gt;</p>')).toBe('<img src=x onerror=alert(1)>');
   });
 
+  test('reads Tiptap task lists and nested lists', () => {
+    const html =
+      '<ul data-type="taskList"><li data-checked="true" data-type="taskItem"><label><input type="checkbox" checked><span></span></label>' +
+      '<div><p>done</p></div></li></ul><ul><li><p>a</p><ul><li><p>b</p></li></ul></li></ul>';
+
+    expect(noteHtmlToText(html)).toBe('done a b');
+  });
+
   test('handles empty and plain input', () => {
     expect(noteHtmlToText('')).toBe('');
     expect(noteHtmlToText('just text')).toBe('just text');
-  });
-});
-
-describe('NOTE_FORMATS', () => {
-  test('excludes the embeds whose HTML export is unescaped', () => {
-    expect(NOTE_FORMATS).not.toContain('video');
-    expect(NOTE_FORMATS).not.toContain('formula');
-  });
-
-  test('keeps every format the toolbar and pasted content use', () => {
-    for (const f of ['header', 'bold', 'italic', 'underline', 'strike', 'list', 'indent', 'link', 'blockquote', 'code-block', 'code', 'color', 'background', 'image']) {
-      expect(NOTE_FORMATS).toContain(f);
-    }
   });
 });

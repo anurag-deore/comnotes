@@ -12,8 +12,8 @@ import { Note } from '@/types/note';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 
-// Quill needs the DOM, so the editor only renders in the browser
-const QuillEditor = dynamic(() => import('@/app/components/QuillEditor'), {
+// The editor needs the DOM, so it only renders in the browser
+const NoteEditor = dynamic(() => import('@/app/components/NoteEditor'), {
   ssr: false,
   loading: () => <div>Loading editor...</div>,
 });
@@ -99,7 +99,7 @@ export default function NotesPage() {
     change({ id: updated.id, title: updated.title, content: updated.content, rev: updated.rev });
   };
 
-  // Handles changes in the Quill editor content
+  // Handles changes in the editor content
   const handleEditorChange = (content: string) => updateSelectedNote({ content });
 
   // Handles changes to the note title input
@@ -319,9 +319,10 @@ export default function NotesPage() {
                 Delete
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              {selectedNoteId && ( // Only render Quill if a note ID is selected
-                <QuillEditor
+            <div className="flex-1 min-h-0">
+              {selectedNoteId && ( // Only render the editor if a note ID is selected
+                <NoteEditor
+                  // One editor per note, so switching notes never carries content across
                   key={selectedNoteId}
                   // Pass the content from the derived selectedNote
                   value={selectedNote.content}
