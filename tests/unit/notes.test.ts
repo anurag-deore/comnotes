@@ -33,8 +33,29 @@ import {
   toNote, trashNote,
 } from '@/lib/notes';
 import type { Note } from '@/types/note';
+import { PBKDF2_ITERATIONS, bytesToBase64, type EncryptedPayload } from '@/lib/noteCrypto';
+import { createVault } from '@/lib/vault';
 
 const { Timestamp } = firestore;
+
+// A well-formed payload as Firestore would hold it (no real key needed to read the shape)
+const storedPayload = (): EncryptedPayload => ({
+  v: 1, kdf: 'PBKDF2-SHA256', iter: PBKDF2_ITERATIONS,
+  salt: bytesToBase64(new Uint8Array(16).fill(1)),
+  iv: bytesToBase64(new Uint8Array(12).fill(2)),
+  ct: bytesToBase64(new Uint8Array(40).fill(3)),
+});
+
+// A real vault with a generated passphrase; low iterations keep the tests fast
+async function testVault() {
+  const vault = createVault({ iterations: 1_000 });
+  await vault.setup(bytesToBase64(crypto.getRandomValues(new Uint8Array(18))));
+  return vault;
+}
+
+// Everything the transaction wrote, as one string to search for plaintext
+const written = (tx: { update: { mock: { calls: unknown[][] } }; set: { mock: { calls: unknown[][] } } }) =>
+  JSON.stringify([tx.update.mock.calls, tx.set.mock.calls]);
 
 // Fake transaction over one stored note
 function transactionWith(stored: Record<string, unknown> | undefined) {
@@ -58,7 +79,22 @@ describe('toNote', () => {
     const n = toNote('a', { title: 'T', content: 'C', createdAt: new Timestamp(5), updatedAt: new Timestamp(9) });
     expect(n).toEqual({
       id: 'a', title: 'T', content: 'C', rev: 0, createdAt: new Date(5), updatedAt: new Date(9), deletedAt: null,
+      locked: false, encrypted: null,
     });
+  });
+
+  test('CNOTE-7 AC-6: an encrypted payload makes the note locked; stray title/content are ignored', () => {
+    const payload = storedPayload();
+    expect(toNote('a', { title: '', content: '', encrypted: payload })).toMatchObject({
+      locked: true, encrypted: payload, title: '', content: '',
+    });
+    expect(toNote('a', { title: 'leak', content: 'leak', encrypted: payload })).toMatchObject({ title: '', content: '' });
+    expect(toNote('a', { title: 'T', encrypted: null })).toMatchObject({ locked: false, encrypted: null, title: 'T' });
+  });
+
+  test('CNOTE-7 AC-4: a payload this version cannot read keeps the note locked but unreadable', () => {
+    expect(toNote('a', { encrypted: { ...storedPayload(), v: 2 } })).toMatchObject({ locked: true, encrypted: null });
+    expect(toNote('a', { encrypted: 'garbage' })).toMatchObject({ locked: true, encrypted: null });
   });
 
   test('CNOTE-6 AC-1: missing or null deletedAt is not deleted; a Timestamp becomes a Date', () => {
@@ -86,7 +122,7 @@ describe('saveNote', () => {
     expect(firestore.runTransaction).toHaveBeenCalledWith(db, expect.any(Function));
     expect(tx.update).toHaveBeenCalledTimes(1);
     expect(tx.update).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/a' }), {
-      title: 'New', content: 'new', rev: 3, updatedAt: 'SERVER_TIMESTAMP',
+      title: 'New', content: 'new', encrypted: null, rev: 3, updatedAt: 'SERVER_TIMESTAMP',
     });
     expect(tx.set).not.toHaveBeenCalled();
   });
@@ -127,6 +163,77 @@ describe('saveNote', () => {
   });
 });
 
+describe('saveNote for locked notes (CNOTE-7)', () => {
+  const secret = { title: 'Diary', content: '<p>my secret entry</p>' };
+
+  test('AC-7: a sealed draft writes only ciphertext, title and content empty', async () => {
+    const vault = await testVault();
+    const payload = await vault.encrypt('a', secret);
+    const tx = transactionWith({ title: 'Diary', content: 'old plain', rev: 2 });
+
+    const result = await saveNote({ id: 'a', title: '', content: '', rev: 2, sealed: { noteId: 'a', payload } }, vault);
+    expect(result).toEqual({ status: 'saved', rev: 3 });
+    expect(tx.update).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/a' }), {
+      title: '', content: '', encrypted: payload, rev: 3, updatedAt: 'SERVER_TIMESTAMP',
+    });
+    expect(written(tx)).not.toContain('secret');
+    expect(written(tx)).not.toContain('Diary');
+  });
+
+  test('AC-11: a plain draft of a locked note (Remove lock) stores plain text and clears the payload', async () => {
+    const tx = transactionWith({ title: '', content: '', encrypted: storedPayload(), rev: 4 });
+    await saveNote({ id: 'a', title: 'T', content: 'C', rev: 4 });
+    expect(tx.update.mock.calls[0][1]).toEqual({ title: 'T', content: 'C', encrypted: null, rev: 5, updatedAt: 'SERVER_TIMESTAMP' });
+  });
+
+  test('AC-8: a conflict on a locked note writes an encrypted copy that only opens under the copy id', async () => {
+    const vault = await testVault();
+    const payload = await vault.encrypt('a', secret);
+    const tx = transactionWith({ title: '', content: '', encrypted: storedPayload(), rev: 7 });
+
+    const result = await saveNote({ id: 'a', title: '', content: '', rev: 6, sealed: { noteId: 'a', payload } }, vault);
+    expect(tx.update).not.toHaveBeenCalled();
+    const [ref, copy] = tx.set.mock.calls[0];
+    expect(ref).toEqual(expect.objectContaining({ id: 'new-id' }));
+    expect(copy).toEqual({
+      title: '', content: '', encrypted: expect.any(Object), rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    });
+    expect(written(tx)).not.toContain('secret');
+    expect(copy.encrypted.iv).not.toBe(payload.iv);
+    await expect(vault.decrypt('new-id', copy.encrypted)).resolves.toEqual({ ...secret, title: 'Diary (conflict copy)' });
+    await expect(vault.decrypt('a', copy.encrypted)).rejects.toThrow();
+    expect(result).toMatchObject({
+      status: 'conflict',
+      server: { id: 'a', locked: true, rev: 7 },
+      copy: { id: 'new-id', title: '', content: '', locked: true, encrypted: copy.encrypted, rev: 0 },
+    });
+  });
+
+  test('AC-8: a sealed draft moved to another note (edits typed during a conflict) is re-encrypted for it', async () => {
+    const vault = await testVault();
+    const payload = await vault.encrypt('a', secret);
+    const tx = transactionWith({ title: '', content: '', encrypted: storedPayload(), rev: 0 });
+
+    await saveNote({ id: 'copy', title: '', content: '', rev: 0, sealed: { noteId: 'a', payload } }, vault);
+    const { encrypted } = tx.update.mock.calls[0][1];
+    expect(encrypted.iv).not.toBe(payload.iv);
+    await expect(vault.decrypt('copy', encrypted)).resolves.toEqual(secret);
+    expect(written(tx)).not.toContain('secret');
+  });
+
+  test('AC-8: without the key a locked conflict throws and writes nothing (the saver retries)', async () => {
+    const vault = await testVault();
+    const payload = await vault.encrypt('a', secret);
+    vault.lock();
+    const tx = transactionWith({ title: '', content: '', encrypted: storedPayload(), rev: 7 });
+
+    await expect(saveNote({ id: 'a', title: '', content: '', rev: 6, sealed: { noteId: 'a', payload } }, vault)).rejects.toThrow();
+    await expect(saveNote({ id: 'a', title: '', content: '', rev: 6, sealed: { noteId: 'a', payload } })).rejects.toThrow();
+    expect(tx.set).not.toHaveBeenCalled();
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('subscribeNotes', () => {
   test('AC-11: listens to notes ordered by updatedAt desc and maps documents', () => {
     const unsubscribe = vi.fn();
@@ -155,6 +262,7 @@ describe('createNote', () => {
     });
     expect(n).toEqual({
       id: 'b', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000), deletedAt: null,
+      locked: false, encrypted: null,
     });
   });
 });
@@ -172,7 +280,7 @@ function batches() {
 
 const DAY = 24 * 60 * 60 * 1000;
 const trashed = (id: string, deletedAt: Date | null): Note => ({
-  id, title: id, content: '', rev: 0, createdAt: new Date(0), updatedAt: new Date(0), deletedAt,
+  id, title: id, content: '', rev: 0, createdAt: new Date(0), updatedAt: new Date(0), deletedAt, locked: false, encrypted: null,
 });
 
 describe('trash', () => {
@@ -249,7 +357,7 @@ describe('fetchAllNotes (CNOTE-19 AC-4)', () => {
 
 describe('importNotes (CNOTE-19 AC-11, AC-14)', () => {
   const imported = (i: number, deletedAt: Date | null = null) => ({
-    title: `T${i}`, content: `<p>${i}</p>`, createdAt: new Date(10 + i), updatedAt: new Date(20 + i), deletedAt,
+    title: `T${i}`, content: `<p>${i}</p>`, createdAt: new Date(10 + i), updatedAt: new Date(20 + i), deletedAt, sealed: null,
   });
 
   test('writes each note as a new document with rev 0 and the backup timestamps', async () => {
@@ -287,6 +395,17 @@ describe('importNotes (CNOTE-19 AC-11, AC-14)', () => {
       return batch;
     });
     await expect(importNotes([imported(1)])).rejects.toMatchObject({ written: 0 });
+  });
+
+  test('CNOTE-7 AC-15: a locked note is written under its original id with its ciphertext only', async () => {
+    const made = batches();
+    const payload = storedPayload();
+    await importNotes([{ ...imported(1), title: '', content: '', sealed: { noteId: 'Abc123', payload } }]);
+    expect(made[0].set.mock.calls).toEqual([
+      [{ path: 'notes/Abc123', id: 'Abc123' }, {
+        title: '', content: '', encrypted: payload, rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21), deletedAt: null,
+      }],
+    ]);
   });
 
   test('nothing to import writes nothing', async () => {

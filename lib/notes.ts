@@ -5,10 +5,18 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { chunkBatches, utf8Length, type ImportedNote } from '@/lib/backup';
-import { Note } from '@/types/note';
+import { isEncryptedPayload, type EncryptedPayload, type NoteText } from '@/lib/noteCrypto';
+import type { Note, SealedText } from '@/types/note';
 
-// What the editor sends to be saved: the local fields plus the rev they were based on
-export type NoteDraft = Pick<Note, 'id' | 'title' | 'content' | 'rev'>;
+// What the editor sends to be saved: the local fields plus the rev they were based on. A locked
+// note's draft is encrypted before it gets here (CNOTE-7): title and content are '' and the text
+// is in `sealed`, so the autosaver never holds or writes the plaintext.
+export type NoteDraft = Pick<Note, 'id' | 'title' | 'content' | 'rev'> & { sealed?: SealedText };
+
+// Re-encrypts a locked note's text for another note id (lib/vault.ts); throws without the key
+export interface NoteKeys {
+  reseal(payload: EncryptedPayload, fromId: string, toId: string, edit?: (text: NoteText) => NoteText): Promise<EncryptedPayload>;
+}
 
 export type SaveResult =
   | { status: 'saved'; rev: number }
@@ -25,18 +33,32 @@ const notesRef = () => collection(db, 'notes');
 
 const toDate = (value: unknown) => (value instanceof Timestamp ? value.toDate() : new Date());
 
-// Notes written before CNOTE-5 have no rev and count as rev 0; notes before CNOTE-6 have no deletedAt
+// Notes written before CNOTE-5 have no rev and count as rev 0; notes before CNOTE-6 have no deletedAt.
+// A locked note shows no title or content outside its ciphertext, even if a stray one is stored.
 export function toNote(id: string, data: DocumentData): Note {
+  const locked = data.encrypted != null;
   return {
     id,
-    title: typeof data.title === 'string' ? data.title : '',
-    content: data.content ?? '',
+    title: !locked && typeof data.title === 'string' ? data.title : '',
+    content: locked ? '' : (data.content ?? ''),
     rev: data.rev ?? 0,
     createdAt: toDate(data.createdAt),
     updatedAt: toDate(data.updatedAt),
     deletedAt: data.deletedAt instanceof Timestamp ? data.deletedAt.toDate() : null,
+    locked,
+    encrypted: locked && isEncryptedPayload(data.encrypted) ? data.encrypted : null,
   };
 }
+
+// The stored fields of a locked note: nothing readable outside the ciphertext
+const lockedFields = (payload: EncryptedPayload) => ({ title: '', content: '', encrypted: payload });
+
+function resealer(keys: NoteKeys | undefined) {
+  if (!keys) throw new Error('A locked note needs its key to be copied');
+  return keys;
+}
+
+const conflictTitle = (title: string) => `${title} (conflict copy)`;
 
 // Live list, newest first; returns the unsubscribe function
 export function subscribeNotes(onNotes: (notes: Note[]) => void, onError: (error: Error) => void) {
@@ -75,12 +97,14 @@ export class ImportError extends Error {
 export async function importNotes(notes: ImportedNote[], onProgress?: (written: number) => void) {
   let written = 0;
   // Approximate bytes per write, so a batch stays under Firestore's request size limit
-  const chunks = chunkBatches(notes, (note) => utf8Length(note.title) + utf8Length(note.content) + 200, BATCH_LIMIT);
+  const sizeOf = (note: ImportedNote) =>
+    utf8Length(note.title) + utf8Length(note.content) + (note.sealed?.payload.ct.length ?? 0) + 300;
+  const chunks = chunkBatches(notes, sizeOf, BATCH_LIMIT);
   for (const chunk of chunks) {
     const batch = writeBatch(db);
-    chunk.forEach((note) => batch.set(doc(notesRef()), {
-      title: note.title,
-      content: note.content,
+    // A locked note keeps its id: its ciphertext is bound to it (CNOTE-7)
+    chunk.forEach((note) => batch.set(note.sealed ? doc(db, 'notes', note.sealed.noteId) : doc(notesRef()), {
+      ...(note.sealed ? lockedFields(note.sealed.payload) : { title: note.title, content: note.content }),
       rev: 0,
       createdAt: Timestamp.fromDate(note.createdAt),
       updatedAt: Timestamp.fromDate(note.updatedAt),
@@ -104,8 +128,12 @@ export async function createNote(): Promise<Note> {
 }
 
 // Saves one note if nobody else saved it since draft.rev; otherwise keeps both versions.
-// A note in Trash still saves and stays in Trash.
-export function saveNote(draft: NoteDraft): Promise<SaveResult> {
+// A note in Trash still saves and stays in Trash. A locked note's draft is written as the
+// ciphertext it carries; its conflict copy is re-encrypted for the copy (CNOTE-7), which needs
+// `keys`: without them the save throws and is retried, it never falls back to plaintext.
+// A plain draft clears `encrypted`, which is how Remove lock is saved.
+export function saveNote(draft: NoteDraft, keys?: NoteKeys): Promise<SaveResult> {
+  const { sealed } = draft;
   return runTransaction(db, async (tx): Promise<SaveResult> => {
     const ref = doc(db, 'notes', draft.id);
     const snapshot = await tx.get(ref);
@@ -114,16 +142,25 @@ export function saveNote(draft: NoteDraft): Promise<SaveResult> {
     const server = toNote(snapshot.id, snapshot.data());
     if (server.rev !== draft.rev) {
       const copyRef = doc(notesRef());
-      const copy = {
-        title: `${draft.title} (conflict copy)`, content: draft.content, rev: 0,
-        createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+      const now = Timestamp.now();
+      const text = sealed
+        ? lockedFields(await resealer(keys).reseal(sealed.payload, sealed.noteId, copyRef.id, (t) => ({ ...t, title: conflictTitle(t.title) })))
+        : { title: conflictTitle(draft.title), content: draft.content };
+      tx.set(copyRef, { ...text, rev: 0, createdAt: now, updatedAt: now });
+      const copy: Note = {
+        id: copyRef.id, title: text.title, content: text.content, rev: 0, createdAt: now.toDate(), updatedAt: now.toDate(),
+        deletedAt: null, locked: !!sealed, encrypted: 'encrypted' in text ? text.encrypted : null,
       };
-      tx.set(copyRef, copy);
-      return { status: 'conflict', server, copy: toNote(copyRef.id, copy) };
+      return { status: 'conflict', server, copy };
     }
 
     const rev = draft.rev + 1;
-    tx.update(ref, { title: draft.title, content: draft.content, rev, updatedAt: serverTimestamp() });
+    let fields;
+    if (!sealed) fields = { title: draft.title, content: draft.content, encrypted: null };
+    else if (sealed.noteId === draft.id) fields = lockedFields(sealed.payload);
+    // Edits the saver moved to a conflict copy were encrypted for the original note
+    else fields = lockedFields(await resealer(keys).reseal(sealed.payload, sealed.noteId, draft.id));
+    tx.update(ref, { ...fields, rev, updatedAt: serverTimestamp() });
     return { status: 'saved', rev };
   });
 }

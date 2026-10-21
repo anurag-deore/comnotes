@@ -6,6 +6,7 @@ import type { JSONContent } from '@tiptap/core';
 import { MarkdownManager } from '@tiptap/markdown';
 import { noteExtensions } from '@/lib/editorExtensions';
 import { noteHtmlToDoc } from '@/lib/editorContent';
+import { LOCKED_TITLE } from '@/lib/lockedNotes';
 import type { Note } from '@/types/note';
 
 const MAX_SLUG = 60;
@@ -103,15 +104,21 @@ function extractImages(node: JSONContent, slug: string, prefix: string, assets: 
   return { ...node, content: node.content.map((child) => extractImages(child, slug, prefix, assets)) };
 }
 
+// A locked note is never decrypted into a backup (CNOTE-7): its Markdown file only says where it is
+const LOCKED_BODY =
+  'This note is locked. Its title and text are encrypted with your passphrase and are only in notes.json. ' +
+  'Import the backup into ComNotes and enter the passphrase to read it.\n';
+
 function frontMatter(note: Note): string {
   const lines = [
     '---',
     // A JSON string is a valid YAML double-quoted scalar
-    `title: ${JSON.stringify(note.title)}`,
+    `title: ${JSON.stringify(note.locked ? LOCKED_TITLE : note.title)}`,
     `created: ${note.createdAt.toISOString()}`,
     `updated: ${note.updatedAt.toISOString()}`,
   ];
   if (note.deletedAt) lines.push(`deleted: ${note.deletedAt.toISOString()}`);
+  if (note.locked) lines.push('locked: true');
   lines.push('---');
   return `${lines.join('\n')}\n\n`;
 }
@@ -119,6 +126,7 @@ function frontMatter(note: Note): string {
 // One note as Markdown. Notes in Trash live one folder down, so their assets are under ../
 export function noteMarkdown(note: Note, slug: string, inTrash: boolean) {
   const assets: MarkdownAsset[] = [];
+  if (note.locked) return { markdown: `${frontMatter(note)}${LOCKED_BODY}`, assets };
   const doc = extractImages(noteHtmlToDoc(note.content), slug, inTrash ? '../' : '', assets);
   const body = markdownSerializer().serialize(doc).trim();
   return { markdown: `${frontMatter(note)}${body ? `${body}\n` : ''}`, assets };
@@ -127,7 +135,7 @@ export function noteMarkdown(note: Note, slug: string, inTrash: boolean) {
 // Every note's Markdown file and asset, keyed by path in the zip
 export function markdownFiles(notes: Note[]): Record<string, string | Uint8Array> {
   const files: Record<string, string | Uint8Array> = {};
-  const slugs = uniqueSlugs(notes.map((note) => note.title));
+  const slugs = uniqueSlugs(notes.map((note) => (note.locked ? LOCKED_TITLE : note.title)));
   notes.forEach((note, i) => {
     const inTrash = note.deletedAt !== null;
     const { markdown, assets } = noteMarkdown(note, slugs[i], inTrash);

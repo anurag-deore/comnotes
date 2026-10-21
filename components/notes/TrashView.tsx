@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { Note } from '@/types/note';
 import { TRASH_DAYS } from '@/lib/notes';
-import { daysLeftInTrash, displayTitle, formatRelativeTime } from '@/lib/noteDisplay';
+import { daysLeftInTrash, formatRelativeTime } from '@/lib/noteDisplay';
+import { noteLabel } from '@/lib/lockedNotes';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -61,7 +62,7 @@ export function TrashView({ notes, now, onRestore, onDeleteForever }: TrashViewP
       <ul role="list" aria-label="Trash" className="flex flex-col gap-2">
         {notes.map((note) => (
           <li key={note.id} data-motion-row={note.id} className="rounded-sm bg-canvas px-4 py-3">
-            <p className="truncate text-body-sm font-semibold text-ink">{displayTitle(note.title)}</p>
+            <p className="truncate text-body-sm font-semibold text-ink">{noteLabel(note)}</p>
             <p className="text-caption text-body">
               <time dateTime={note.deletedAt.toISOString()} title={`Moved to Trash ${note.deletedAt.toLocaleString()}`}>
                 {formatRelativeTime(note.deletedAt, now)}
@@ -70,7 +71,7 @@ export function TrashView({ notes, now, onRestore, onDeleteForever }: TrashViewP
               {daysLeftLabel(daysLeftInTrash(note.deletedAt, now, TRASH_DAYS))}
             </p>
             {confirming === note.id ? (
-              <div role="group" aria-label={`Confirm deleting ${displayTitle(note.title)}`} className="mt-2 flex flex-wrap items-center gap-2">
+              <div role="group" aria-label={`Confirm deleting ${noteLabel(note)}`} className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="mr-auto text-body-sm font-semibold text-ink">Delete forever?</span>
                 <Button size="sm" variant="secondary" autoFocus onClick={() => setConfirming(null)}>
                   Cancel

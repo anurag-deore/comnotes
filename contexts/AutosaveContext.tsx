@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { createAutosaver, type Autosaver, type SaveStatus } from '@/lib/autosave';
 import { saveNote, type NoteDraft, type SaveResult } from '@/lib/notes';
+import { noteVault } from '@/lib/vault';
 
 export type Conflict = Extract<SaveResult, { status: 'conflict' }>;
 
@@ -22,7 +23,8 @@ export function AutosaveProvider({ children }: { children: ReactNode }) {
   const [conflicts] = useState(() => new Set<(conflict: Conflict) => void>());
   const [gone] = useState(() => new Set<(draft: NoteDraft) => void>());
   const [saver] = useState(() => createAutosaver({
-    save: saveNote,
+    // The vault re-encrypts a locked note's conflict copy (CNOTE-7)
+    save: (draft) => saveNote(draft, noteVault),
     delayMs: 1000,
     retryMs: 5000,
     onStatus: setStatus,

@@ -21,5 +21,5 @@ export function useAutosave(onConflict: (conflict: Conflict) => void, onGone: (d
     };
   }, [conflicts, gone]);
 
-  return { status, change: saver.change, draft: saver.draft };
+  return { status, change: saver.change, draft: saver.draft, flush: saver.flush };
 }

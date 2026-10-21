@@ -5,7 +5,7 @@ import type { Note } from '@/types/note';
 
 const draft = (id: string, content: string, rev = 0): NoteDraft => ({ id, title: `T ${id}`, content, rev });
 const note = (id: string, rev: number, content = ''): Note => ({
-  id, title: `T ${id}`, content, rev, createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null,
+  id, title: `T ${id}`, content, rev, createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null, locked: false, encrypted: null,
 });
 
 // A save whose resolution the test controls
@@ -126,6 +126,23 @@ describe('conflicts', () => {
 
     expect(save).toHaveBeenLastCalledWith({ id: 'c', title: 'T a', content: 'mine and more', rev: 0 });
     expect(saver.isDirty('a')).toBe(false);
+  });
+
+  test('CNOTE-7 AC-8: a locked note\'s moved edit keeps the id its ciphertext is bound to, so saveNote re-encrypts it', async () => {
+    const first = deferred<SaveResult>();
+    save.mockImplementationOnce(() => first.promise);
+    const saver = setup();
+    const sealed = (ct: string) => ({
+      noteId: 'a', payload: { v: 1 as const, kdf: 'PBKDF2-SHA256' as const, iter: 600_000, salt: 's', iv: ct, ct },
+    });
+
+    saver.change({ id: 'a', title: '', content: '', rev: 2, sealed: sealed('one') });
+    await vi.advanceTimersByTimeAsync(1000);
+    saver.change({ id: 'a', title: '', content: '', rev: 2, sealed: sealed('two') });
+    first.resolve({ status: 'conflict', server: note('a', 5), copy: note('c', 0) });
+    await saver.flush();
+
+    expect(save).toHaveBeenLastCalledWith({ id: 'c', title: '', content: '', rev: 0, sealed: sealed('two') });
   });
 });
 

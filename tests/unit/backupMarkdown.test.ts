@@ -2,11 +2,12 @@
 import { describe, expect, test } from 'vitest';
 import { dataUriToFile, markdownFiles, noteMarkdown, slugify, uniqueSlugs } from '@/lib/backupMarkdown';
 import type { Note } from '@/types/note';
+import { PBKDF2_ITERATIONS, bytesToBase64 } from '@/lib/noteCrypto';
 
 const note = (over: Partial<Note> = {}): Note => ({
   id: 'a', title: 'Shopping', content: '', rev: 0,
   createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null,
-  ...over,
+  locked: false, encrypted: null, ...over,
 });
 
 const body = (content: string) => noteMarkdown(note({ content }), 'n', false).markdown.split('---\n\n')[1];
@@ -140,5 +141,30 @@ describe('markdownFiles (AC-5, AC-7)', () => {
       'markdown/assets/plan-2-1.png', 'markdown/plan.md', 'markdown/trash/plan-2.md', 'markdown/untitled.md',
     ]);
     expect(files['markdown/trash/plan-2.md']).toContain('![](../assets/plan-2-1.png)');
+  });
+});
+
+describe('locked notes (CNOTE-7 AC-14)', () => {
+  const encrypted = {
+    v: 1 as const, kdf: 'PBKDF2-SHA256' as const, iter: PBKDF2_ITERATIONS,
+    salt: bytesToBase64(new Uint8Array(16).fill(1)), iv: bytesToBase64(new Uint8Array(12).fill(2)),
+    ct: bytesToBase64(new Uint8Array(48).fill(3)),
+  };
+  const locked = (over: Partial<Note> = {}) => note({ id: 'L', title: '', content: '', locked: true, encrypted, ...over });
+
+  test('each locked note gets a placeholder file, Trash included, and nothing else', () => {
+    const files = markdownFiles([locked(), locked({ id: 'M', deletedAt: new Date('2026-10-01T00:00:00.000Z') }), note()]);
+    expect(Object.keys(files)).toEqual(['markdown/locked-note.md', 'markdown/trash/locked-note-2.md', 'markdown/shopping.md']);
+  });
+
+  test('the placeholder says it is encrypted and holds neither ciphertext nor a title', () => {
+    const { markdown, assets } = noteMarkdown(locked(), 'locked-note', false);
+    expect(assets).toEqual([]);
+    expect(markdown).toBe(
+      '---\ntitle: "Locked note"\ncreated: 2026-01-02T03:04:05.006Z\nupdated: 2026-02-03T04:05:06.007Z\nlocked: true\n---\n\n' +
+        'This note is locked. Its title and text are encrypted with your passphrase and are only in notes.json. ' +
+        'Import the backup into ComNotes and enter the passphrase to read it.\n',
+    );
+    expect(markdown).not.toContain(encrypted.ct);
   });
 });

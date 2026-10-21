@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { FileText, NotebookPen, Plus } from 'lucide-react';
 import {
@@ -12,14 +12,22 @@ import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNow } from '@/hooks/useNow';
 import { displayTitle } from '@/lib/noteDisplay';
+import { LOCKED_TITLE, noteLabel, withDraft } from '@/lib/lockedNotes';
+import { noteVault } from '@/lib/vault';
+import type { NoteText } from '@/lib/noteCrypto';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { MobileSidebar, Sidebar } from '@/components/notes/Sidebar';
 import { EditorPane, SidebarButtons } from '@/components/notes/EditorPane';
+import { LockedNotePane, type LockedState } from '@/components/notes/LockedNotePane';
+import { LockDialog, type LockDialogMode } from '@/components/notes/LockDialog';
 import { NotesSkeleton } from '@/components/notes/NotesSkeleton';
 import { animateListChange } from '@/lib/listMotion';
 import { noteListsChanged, prefersReducedMotion, runViewTransition } from '@/lib/motion';
 import { browserStorage, readSidebarHidden, writeSidebarHidden } from '@/lib/sidebarPreference';
+
+// A locked note's decrypted text and the IV of the payload it matches (CNOTE-7). Memory only.
+type Decrypted = NoteText & { iv: string };
 
 export default function NotesPage() {
   const { logout } = useAuth();
@@ -39,6 +47,14 @@ export default function NotesPage() {
   const now = useNow();
   // Set when the drawer closes because a note was opened, so focus goes to the note, not the menu button
   const drawerClosedByNavigation = useRef(false);
+  // Locked notes (CNOTE-7): decrypted text by note id, payload IVs that failed to decrypt, decryptions
+  // running, and a counter per note so only the latest edit's encryption is queued
+  const [plain, setPlain] = useState<Record<string, Decrypted>>({});
+  const [failedIvs, setFailedIvs] = useState<ReadonlySet<string>>(() => new Set());
+  const decrypting = useRef(new Set<string>());
+  const sealCount = useRef(new Map<string, number>());
+  const [lockDialog, setLockDialog] = useState<LockDialogMode | null>(null);
+  const vaultVersion = useSyncExternalStore(noteVault.subscribe, noteVault.getVersion, noteVault.getVersion);
 
   // Every change to the notes goes through here. Adding, removing or re-ordering rows animates
   // (View Transition, lib/listMotion.ts); edits that keep the order are applied as usual.
@@ -55,15 +71,26 @@ export default function NotesPage() {
   }, []);
 
   // On a conflict the server version replaces ours and our version shows up as a copy
-  const { status, change, draft } = useAutosave(({ server, copy }) => {
+  const { status, change, draft, flush } = useAutosave(({ server, copy }) => {
     commitNotes(prevNotes => [
       copy,
       ...prevNotes.filter(note => note.id !== copy.id).map(note => (note.id === server.id ? server : note)),
     ]);
-    toast.error(`"${server.title}" was changed elsewhere. Your version was saved as "${copy.title}".`);
+    toast.error(
+      copy.locked
+        ? `"${noteLabel(server)}" was changed elsewhere. Your version was saved as a locked conflict copy.`
+        : `"${noteLabel(server)}" was changed elsewhere. Your version was saved as "${copy.title}".`,
+    );
   }, (dropped) => {
-    toast.error(`"${dropped.title}" no longer exists, so its unsaved changes were discarded.`);
+    const title = dropped.sealed ? LOCKED_TITLE : displayTitle(dropped.title);
+    toast.error(`"${title}" no longer exists, so its unsaved changes were discarded.`);
   });
+
+  // Locking the app forgets every decrypted note at once. Encryptions already running still finish
+  // and queue their ciphertext, so the last keystrokes aren't lost.
+  useEffect(() => noteVault.subscribe(() => {
+    if (!noteVault.canEncrypt()) setPlain({});
+  }), []);
 
   const activeNotes = useMemo(() => localNotes.filter(note => !note.deletedAt), [localNotes]);
   const trashedNotes = useMemo(
@@ -85,7 +112,7 @@ export default function NotesPage() {
         // A note with unsaved edits shows them until its save lands, even after a lock and unlock.
         // Drafts carry no deletedAt, so the server decides whether the note is in Trash.
         // The first load isn't animated: the skeleton is showing
-        commitNotes(() => serverNotes.map(note => ({ ...note, ...draft(note.id) })), !isFirstSnapshot);
+        commitNotes(() => serverNotes.map(note => withDraft(note, draft(note.id))), !isFirstSnapshot);
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
           // Select the first note by default, only on initial load
@@ -102,9 +129,67 @@ export default function NotesPage() {
     );
   }, [draft, commitNotes]);
 
+  // Decrypts locked notes the vault has a key for, and again whenever a new payload arrives (an edit
+  // from elsewhere). Our own saves carry the IV we already have, so they aren't decrypted again.
+  useEffect(() => {
+    for (const note of localNotes) {
+      const payload = note.encrypted;
+      const known = plain[note.id];
+      if (!payload || known?.iv === payload.iv || failedIvs.has(payload.iv) || decrypting.current.has(payload.iv)) continue;
+      if (!noteVault.hasKeyFor(payload)) continue;
+      decrypting.current.add(payload.iv);
+      noteVault.decrypt(note.id, payload)
+        .then(
+          (text) => {
+            // Dropped if the vault locked meanwhile, or the note was edited here meanwhile
+            if (!noteVault.hasKeyFor(payload)) return;
+            setPlain(prev => (prev[note.id] === known ? { ...prev, [note.id]: { ...text, iv: payload.iv } } : prev));
+          },
+          (error) => {
+            console.error('Error decrypting note:', error);
+            setFailedIvs(prev => new Set(prev).add(payload.iv));
+          },
+        )
+        .finally(() => decrypting.current.delete(payload.iv));
+    }
+  }, [localNotes, plain, failedIvs, vaultVersion]);
+
+  // Encrypts a locked note's text and queues the ciphertext for saving. Resolves to false when a
+  // newer edit (or Remove lock) superseded it. Plaintext never goes to the saver. `keepOpen` (Lock
+  // note) keeps the just-locked note decrypted on screen.
+  const sealAndSave = (note: Note, text: NoteText, keepOpen = false) => {
+    const count = (sealCount.current.get(note.id) ?? 0) + 1;
+    sealCount.current.set(note.id, count);
+    return noteVault.encrypt(note.id, text, note.encrypted ?? undefined).then((payload) => {
+      if (sealCount.current.get(note.id) !== count) return false;
+      // Once the app locked, nothing decrypted comes back into memory; the ciphertext is still queued
+      const open = noteVault.hasKeyFor(payload);
+      setPlain(prev => {
+        const shown = prev[note.id] ?? (keepOpen ? text : undefined);
+        return open && shown ? { ...prev, [note.id]: { ...shown, iv: payload.iv } } : prev;
+      });
+      commitNotes(prevNotes => prevNotes.map(n => (
+        n.id === note.id ? { ...n, title: '', content: '', locked: true, encrypted: payload } : n
+      )));
+      change({ id: note.id, title: '', content: '', rev: note.rev, sealed: { noteId: note.id, payload } });
+      return true;
+    });
+  };
+
   // Applies an edit locally and queues an autosave of just that note
   const updateSelectedNote = (fields: Partial<Pick<Note, 'title' | 'content'>>) => {
     if (!selectedNote) return;
+    if (selectedNote.locked) {
+      const known = plain[selectedNote.id];
+      if (!known) return;
+      const text = { title: fields.title ?? known.title, content: fields.content ?? known.content };
+      setPlain(prev => ({ ...prev, [selectedNote.id]: { ...text, iv: prev[selectedNote.id]?.iv ?? known.iv } }));
+      sealAndSave(selectedNote, text).catch(error => {
+        console.error('Error encrypting note:', error);
+        toast.error("Couldn't encrypt your change. Unlock the note and try again.");
+      });
+      return;
+    }
     const updated = { ...selectedNote, ...fields };
     commitNotes(prevNotes => prevNotes.map(note => (note.id === updated.id ? updated : note)));
     change({ id: updated.id, title: updated.title, content: updated.content, rev: updated.rev });
@@ -146,12 +231,67 @@ export default function NotesPage() {
     });
   };
 
+  // Lock note: encrypts the open note in place. Needs a key; the dialog gets one first.
+  const lockSelectedNote = async () => {
+    if (!selectedNote || selectedNote.locked) return;
+    try {
+      if (await sealAndSave(selectedNote, { title: selectedNote.title, content: selectedNote.content }, true)) void flush();
+    } catch (error) {
+      console.error('Error locking note:', error);
+      toast.error("Couldn't lock the note. Try again.");
+    }
+  };
+
+  // Remove lock: saves the decrypted text as plain text again; pending encryptions are dropped
+  const removeLockFromSelectedNote = () => {
+    if (!selectedNote?.locked) return;
+    const { id, rev } = selectedNote;
+    const text = plain[id];
+    if (!text) return;
+    sealCount.current.delete(id);
+    commitNotes(prevNotes => prevNotes.map(n => (
+      n.id === id ? { ...n, title: text.title, content: text.content, locked: false, encrypted: null } : n
+    )));
+    setPlain(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    change({ id, title: text.title, content: text.content, rev });
+    void flush();
+  };
+
+  // An existing locked note checks the passphrase; without one this is the first lock (setup)
+  const lockedSample = useMemo(() => {
+    const note = localNotes.find(n => n.encrypted);
+    return note?.encrypted ? { id: note.id, payload: note.encrypted } : null;
+  }, [localNotes]);
+
+  const unlockedTitles = useMemo(
+    () => Object.fromEntries(Object.entries(plain).map(([id, text]) => [id, text.title])),
+    [plain],
+  );
+
+  const toggleLock = () => {
+    if (!selectedNote) return;
+    if (selectedNote.locked) setLockDialog('remove');
+    else if (noteVault.canEncrypt()) void lockSelectedNote();
+    else setLockDialog(lockedSample ? 'verify' : 'setup');
+  };
+
+  const confirmLockDialog = () => {
+    const mode = lockDialog;
+    setLockDialog(null);
+    if (mode === 'remove') removeLockFromSelectedNote();
+    else void lockSelectedNote();
+  };
+
   // Moves the selected note to Trash. Unsaved edits keep saving to it, so restoring brings them back.
   // The live snapshot shows the change at once and rolls it back if the write fails.
   const deleteSelectedNote = () => {
     if (!selectedNote) return;
     const { id } = selectedNote;
-    const title = displayTitle(selectedNote.title);
+    const title = noteLabel(selectedNote);
     const index = activeNotes.findIndex(note => note.id === id);
     setSelectedNoteId((activeNotes[index + 1] ?? activeNotes[index - 1])?.id ?? null);
     trashNote(id).catch(error => {
@@ -212,6 +352,14 @@ export default function NotesPage() {
 
   if (isLoading) return <NotesSkeleton />;
 
+  // The open note: a locked one shows its decrypted text, or the unlock pane until it has it
+  const decrypted = selectedNote?.locked ? plain[selectedNote.id] : undefined;
+  const openNote = selectedNote && decrypted ? { ...selectedNote, title: decrypted.title, content: decrypted.content } : selectedNote;
+  let lockedState: LockedState = 'needs-passphrase';
+  if (!selectedNote?.encrypted) lockedState = 'unreadable';
+  else if (failedIvs.has(selectedNote.encrypted.iv)) lockedState = 'failed';
+  else if (noteVault.hasKeyFor(selectedNote.encrypted)) lockedState = 'decrypting';
+
   const sidebarProps = {
     notes: activeNotes,
     trashedNotes,
@@ -224,6 +372,7 @@ export default function NotesPage() {
     onRestore: restore,
     onDeleteForever: deleteForever,
     onLock: () => void logout(),
+    unlockedTitles,
   };
   const toggles = {
     sidebarHidden: isSidebarHidden,
@@ -258,15 +407,27 @@ export default function NotesPage() {
         tabIndex={-1}
         className={`flex min-w-0 flex-1 flex-col outline-none md:py-3 md:pr-3 ${isSidebarHidden ? 'md:pl-3' : ''}`}
       >
-        {selectedNote ? (
-          <EditorPane
+        {selectedNote?.locked && !decrypted ? (
+          <LockedNotePane
+            // A fresh form per note, so a typed passphrase never carries over
+            key={selectedNote.id}
             note={selectedNote}
+            state={lockedState}
+            onTrash={deleteSelectedNote}
+            // The form is about to be replaced by the editor; keep focus in the note area
+            onUnlocked={() => document.getElementById('note-editor')?.focus()}
+            {...toggles}
+          />
+        ) : openNote ? (
+          <EditorPane
+            note={openNote}
             status={status}
-            focusTitle={focusTitleId === selectedNote.id}
+            focusTitle={focusTitleId === openNote.id}
             onTitleFocused={clearFocusTitle}
             onTitleChange={handleTitleChange}
             onContentChange={handleEditorChange}
             onTrash={deleteSelectedNote}
+            onToggleLock={toggleLock}
             {...toggles}
           />
         ) : (
@@ -298,6 +459,8 @@ export default function NotesPage() {
           </div>
         )}
       </main>
+
+      <LockDialog mode={lockDialog} sample={lockedSample} onClose={() => setLockDialog(null)} onConfirm={confirmLockDialog} />
     </div>
   );
 }

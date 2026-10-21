@@ -152,6 +152,7 @@ export function BackupDialog() {
   }[phase];
 
   const trashed = plan?.create.filter((note) => note.deletedAt).length ?? 0;
+  const locked = plan?.create.filter((note) => note.sealed).length ?? 0;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -187,6 +188,7 @@ export function BackupDialog() {
                   {plural(plan.create.length, 'new note')} to add
                   {trashed > 0 && ` (${trashed.toLocaleString()} in Trash)`}
                 </li>
+                {locked > 0 && <li>{plural(locked, 'locked note')}, still encrypted with your passphrase</li>}
                 {plan.duplicates > 0 && <li>{plural(plan.duplicates, 'duplicate')} skipped</li>}
                 {plan.invalid > 0 && <li>{plural(plan.invalid, 'invalid entry', 'invalid entries')} ignored</li>}
               </ul>
@@ -218,6 +220,7 @@ export function BackupDialog() {
                 <h3 id={`${id}-export`} className="text-body-md font-semibold">Export</h3>
                 <p className="mt-1 text-body-sm text-body">
                   One zip with every note, Trash included: <code>notes.json</code> for importing, and a Markdown file per note.
+                  Locked notes stay encrypted.
                 </p>
                 <Button
                   variant="primary"

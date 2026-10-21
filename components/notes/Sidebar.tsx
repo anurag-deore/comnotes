@@ -22,6 +22,8 @@ export interface SidebarProps {
   onRestore: (id: string) => void;
   onDeleteForever: (ids: string[]) => void;
   onLock: () => void;
+  // Decrypted titles of locked notes, in memory only (CNOTE-7)
+  unlockedTitles: Record<string, string>;
   // The mobile drawer passes its close button here
   headerAction?: ReactNode;
 }
@@ -30,7 +32,7 @@ export interface SidebarProps {
 // sidebar and the mobile drawer.
 export function Sidebar({
   notes, trashedNotes, selectedId, now, showTrash, onShowTrash, onSelect, onCreate, onRestore, onDeleteForever, onLock,
-  headerAction,
+  unlockedTitles, headerAction,
 }: SidebarProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-3">
@@ -61,7 +63,14 @@ export function Sidebar({
         ) : (
           <ul role="list" aria-label={`${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`} className="flex flex-col gap-2">
             {notes.map((note) => (
-              <NoteListItem key={note.id} note={note} active={note.id === selectedId} now={now} onSelect={onSelect} />
+              <NoteListItem
+                key={note.id}
+                note={note}
+                active={note.id === selectedId}
+                now={now}
+                onSelect={onSelect}
+                unlockedTitle={unlockedTitles[note.id]}
+              />
             ))}
           </ul>
         )}

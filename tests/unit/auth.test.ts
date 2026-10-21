@@ -13,6 +13,8 @@ const auth = vi.hoisted(() => ({ name: 'test-auth' }));
 vi.mock('@/lib/firebase', () => ({ getFirebaseAuth: () => auth }));
 
 import { lock, unlock } from '@/lib/auth';
+import { noteVault } from '@/lib/vault';
+import { bytesToBase64 } from '@/lib/noteCrypto';
 
 const OWNER_EMAIL = 'owner@example.com';
 
@@ -61,5 +63,16 @@ describe('lock', () => {
   test('AC-4: signs out of Firebase Auth', async () => {
     await lock();
     expect(firebaseAuth.signOut).toHaveBeenCalledWith(auth);
+  });
+
+  test('CNOTE-7 AC-13: forgets the keys of locked notes before signing out', async () => {
+    await noteVault.setup(bytesToBase64(crypto.getRandomValues(new Uint8Array(18))));
+    expect(noteVault.canEncrypt()).toBe(true);
+    firebaseAuth.signOut.mockImplementation(async () => {
+      expect(noteVault.canEncrypt()).toBe(false);
+    });
+    await lock();
+    expect(noteVault.canEncrypt()).toBe(false);
+    expect(firebaseAuth.signOut).toHaveBeenCalledTimes(1);
   });
 });

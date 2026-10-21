@@ -1,6 +1,7 @@
 import { FirebaseError } from 'firebase/app';
 import { inMemoryPersistence, setPersistence, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { getFirebaseAuth } from '@/lib/firebase';
+import { noteVault } from '@/lib/vault';
 
 const INVALID_PIN_CODES = ['auth/invalid-credential', 'auth/wrong-password', 'auth/missing-password'];
 
@@ -23,6 +24,8 @@ export async function unlock(pin: string) {
   }
 }
 
+// Forgets the keys of locked notes first (CNOTE-7), then signs out
 export async function lock() {
+  noteVault.lock();
   await signOut(getFirebaseAuth());
 }
