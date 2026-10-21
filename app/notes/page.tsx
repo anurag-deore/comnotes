@@ -9,6 +9,8 @@ import {
 import { noteView, visibleNotes, type NoteView } from '@/lib/noteViews';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useNoteMigration } from '@/hooks/useNoteMigration';
+import { useNoteSearch } from '@/hooks/useNoteSearch';
+import { onSearchFocusRequest } from '@/lib/searchFocus';
 import { Note } from '@/types/note';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,7 +21,7 @@ import { noteVault } from '@/lib/vault';
 import type { NoteText } from '@/lib/noteCrypto';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { MobileSidebar, Sidebar } from '@/components/notes/Sidebar';
+import { DESKTOP, MobileSidebar, Sidebar } from '@/components/notes/Sidebar';
 import { EditorPane, SidebarButtons } from '@/components/notes/EditorPane';
 import { LockedNotePane, type LockedState } from '@/components/notes/LockedNotePane';
 import { LockDialog, type LockDialogMode } from '@/components/notes/LockDialog';
@@ -31,6 +33,13 @@ import { browserStorage, readSidebarHidden, writeSidebarHidden } from '@/lib/sid
 
 // A locked note's decrypted text and the IV of the payload it matches (CNOTE-7). Memory only.
 type Decrypted = NoteText & { iv: string };
+
+// Focuses (and selects) the search field inside `scope`: the desktop sidebar or the drawer
+function focusSearchField(scope: string) {
+  const field = document.querySelector<HTMLInputElement>(`${scope} [data-search-input]`);
+  field?.focus();
+  field?.select();
+}
 
 // A quiet toast with an Undo button (Trash, Archive)
 function undoToast(message: ReactNode, onUndo: () => void) {
@@ -70,6 +79,8 @@ export default function NotesPage() {
   const now = useNow();
   // Set when the drawer closes because a note was opened, so focus goes to the note, not the menu button
   const drawerClosedByNavigation = useRef(false);
+  // Set when the drawer opens because search was asked for, so its field gets focus
+  const drawerOpenedForSearch = useRef(false);
   // Locked notes (CNOTE-7): decrypted text by note id, payload IVs that failed to decrypt, decryptions
   // running, and a counter per note so only the latest edit's encryption is queued
   const [plain, setPlain] = useState<Record<string, Decrypted>>({});
@@ -80,6 +91,8 @@ export default function NotesPage() {
   const vaultVersion = useSyncExternalStore(noteVault.subscribe, noteVault.getVersion, noteVault.getVersion);
   // Notes saved by older versions (CNOTE-21), checked once the list has loaded
   const migration = useNoteMigration(!isLoading);
+  // Search (CNOTE-18) over the notes and, while the vault is unlocked, the decrypted locked notes
+  const search = useNoteSearch(localNotes, plain);
 
   // Every change to the notes goes through here. Adding, removing or re-ordering rows animates
   // (View Transition, lib/listMotion.ts); edits that keep the order are applied as usual.
@@ -248,6 +261,8 @@ export default function NotesPage() {
       setSelectedNoteId(createdNote.id);
       setFocusTitleId(createdNote.id);
       setView('notes');
+      // The new note is empty, so it would not be among the results
+      search.clear();
       closeDrawerForNavigation();
     } catch (error) {
       console.error('Error creating note:', error);
@@ -384,6 +399,39 @@ export default function NotesPage() {
     closeDrawerForNavigation();
   }, [closeDrawerForNavigation]);
 
+  // Opening a search result keeps the query; on desktop focus moves to the note (the drawer does
+  // that itself when it closes)
+  const openSearchResult = (id: string) => {
+    const inDrawer = isDrawerOpen;
+    handleNoteSelect(id);
+    if (!inDrawer) document.getElementById('note-editor')?.focus();
+  };
+
+  // requestSearchFocus() (lib/searchFocus.ts; CNOTE-24 binds a shortcut to it): focus the visible
+  // field, showing the desktop sidebar or opening the drawer first
+  useEffect(() => onSearchFocusRequest(() => {
+    if (window.matchMedia(DESKTOP).matches) {
+      if (isSidebarHidden) {
+        writeSidebarHidden(browserStorage(), false);
+        flushSync(() => setIsSidebarHidden(false));
+      }
+      focusSearchField('#notes-sidebar');
+    } else if (isDrawerOpen) {
+      focusSearchField('#notes-drawer');
+    } else {
+      drawerClosedByNavigation.current = false;
+      drawerOpenedForSearch.current = true;
+      setIsDrawerOpen(true);
+    }
+  }), [isSidebarHidden, isDrawerOpen]);
+
+  const onDrawerOpenAutoFocus = (event: Event) => {
+    if (!drawerOpenedForSearch.current) return;
+    drawerOpenedForSearch.current = false;
+    event.preventDefault();
+    focusSearchField('#notes-drawer');
+  };
+
   // After the drawer closes: a new note keeps focus on its title; an opened note focuses the editor area
   const onDrawerCloseAutoFocus = (event: Event) => {
     if (!drawerClosedByNavigation.current) return;
@@ -446,6 +494,8 @@ export default function NotesPage() {
     onDeleteForever: deleteForever,
     onLock: () => void logout(),
     unlockedTitles,
+    search,
+    onOpenResult: openSearchResult,
   };
   const toggles = {
     sidebarHidden: isSidebarHidden,
@@ -471,6 +521,7 @@ export default function NotesPage() {
       <MobileSidebar
         open={isDrawerOpen}
         onOpenChange={setIsDrawerOpen}
+        onOpenAutoFocus={onDrawerOpenAutoFocus}
         onCloseAutoFocus={onDrawerCloseAutoFocus}
         {...sidebarProps}
       />
