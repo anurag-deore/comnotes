@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { flushSync } from 'react-dom';
-import { useRouter } from 'next/navigation';
 import { FileText, NotebookPen, Plus } from 'lucide-react';
 import {
   createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, subscribeNotes, trashNote,
@@ -23,8 +22,7 @@ import { noteListsChanged, prefersReducedMotion, runViewTransition } from '@/lib
 import { browserStorage, readSidebarHidden, writeSidebarHidden } from '@/lib/sidebarPreference';
 
 export default function NotesPage() {
-  const router = useRouter();
-  const { isAuthenticated, logout } = useAuth();
+  const { logout } = useAuth();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
   // The latest list, ahead of React state while an animated update waits for its View Transition
   const notesRef = useRef<Note[]>([]);
@@ -79,12 +77,8 @@ export default function NotesPage() {
   }, [activeNotes, selectedNoteId]);
 
   // Keep the list live; changes from other tabs and devices arrive here
+  // app/notes/layout.tsx only renders this page while unlocked
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/');
-      return;
-    }
-
     let isFirstSnapshot = true;
     return subscribeNotes(
       (serverNotes) => {
@@ -106,7 +100,7 @@ export default function NotesPage() {
         console.error('Error loading notes:', error);
       },
     );
-  }, [router, isAuthenticated, draft, commitNotes]);
+  }, [draft, commitNotes]);
 
   // Applies an edit locally and queues an autosave of just that note
   const updateSelectedNote = (fields: Partial<Pick<Note, 'title' | 'content'>>) => {
