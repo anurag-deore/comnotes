@@ -6,6 +6,7 @@ import { OFFLINE_UNLOCK_MESSAGE, unlock } from '@/lib/auth';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
+import { Logo } from '@/components/ui/Logo';
 import { cssDurationMs, prefersReducedMotion } from '@/lib/motion';
 
 // A short, soft side-to-side shake for a wrong PIN; skipped with reduced motion
@@ -65,7 +66,8 @@ export default function PinLock() {
   const describedBy = [lockedForInactivity && hintId, error && errorId].filter(Boolean).join(' ') || undefined;
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-canvas p-4">
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-8 bg-canvas p-4">
+      <Logo className="h-10 w-auto text-ink" />
       {/* Auth form card: sage card on white, labelled input with an ink border */}
       <div ref={cardRef} className="w-full max-w-sm animate-card-in rounded-xl bg-canvas-soft p-6 md:p-8">
         <span className="flex size-12 items-center justify-center rounded-full bg-canvas">

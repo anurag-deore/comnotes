@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Archive, ArrowLeft, House, Keyboard, Lock, NotebookPen, Plus, Trash2, X } from 'lucide-react';
+import { Archive, ArrowLeft, House, Keyboard, Lock, Plus, Trash2, X } from 'lucide-react';
+import { Logo } from '@/components/ui/Logo';
 import type { Note } from '@/types/note';
 import { Button, IconButton } from '@/components/ui/Button';
 import { NoteListItem } from '@/components/notes/NoteListItem';
@@ -84,10 +85,7 @@ export function Sidebar({
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-3">
       <div className="flex items-center justify-between gap-2 px-2 pt-1">
-        <span className="flex items-center gap-2 text-body-md font-black tracking-tight text-ink">
-          <NotebookPen aria-hidden className="size-5" />
-          ComNotes
-        </span>
+        <Logo className="h-6 w-auto text-ink" />
         <span className="flex items-center gap-1">
           {onShowShortcuts && (
             <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={onShowShortcuts} className="max-md:hidden" />
