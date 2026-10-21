@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Archive, ArrowLeft, Lock, NotebookPen, Plus, Trash2, X } from 'lucide-react';
+import { Archive, ArrowLeft, House, Lock, NotebookPen, Plus, Trash2, X } from 'lucide-react';
 import type { Note } from '@/types/note';
 import { Button, IconButton } from '@/components/ui/Button';
 import { NoteListItem } from '@/components/notes/NoteListItem';
@@ -37,6 +37,9 @@ export interface SidebarProps {
   onOpenResult: (id: string) => void;
   // The mobile drawer passes its close button here
   headerAction?: ReactNode;
+  // Home (CNOTE-23): closes the open note; active while Home shows
+  onHome?: () => void;
+  homeActive?: boolean;
 }
 
 const VIEW_NAMES: Record<NoteView, string> = { notes: 'Notes', archive: 'Archive', trash: 'Trash' };
@@ -52,7 +55,7 @@ function useActiveResult(results: SearchResult[]) {
 // desktop sidebar and the mobile drawer.
 export function Sidebar({
   notes, archivedNotes, trashedNotes, selectedId, now, view, onShowView, onSelect, onCreate, onUnarchive, onRestore,
-  onDeleteForever, onLock, unlockedTitles, search, onOpenResult, headerAction,
+  onDeleteForever, onLock, unlockedTitles, search, onOpenResult, headerAction, onHome, homeActive,
 }: SidebarProps) {
   const inputId = useId();
   const listboxId = useId();
@@ -83,7 +86,18 @@ export function Sidebar({
           <NotebookPen aria-hidden className="size-5" />
           ComNotes
         </span>
-        {headerAction}
+        <span className="flex items-center gap-1">
+          {onHome && (
+            <IconButton
+              label="Home"
+              icon={House}
+              onClick={onHome}
+              aria-current={homeActive ? 'page' : undefined}
+              className={homeActive ? 'bg-primary-pale' : undefined}
+            />
+          )}
+          {headerAction}
+        </span>
       </div>
 
       <SearchField

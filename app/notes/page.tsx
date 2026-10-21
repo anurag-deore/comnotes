@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { FileText, NotebookPen, Plus } from 'lucide-react';
 import {
   archiveNote, createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, subscribeNotes, trashNote, unarchiveNote,
 } from '@/lib/notes';
@@ -19,10 +18,9 @@ import { displayTitle } from '@/lib/noteDisplay';
 import { LOCKED_TITLE, noteLabel, withDraft } from '@/lib/lockedNotes';
 import { noteVault } from '@/lib/vault';
 import type { NoteText } from '@/lib/noteCrypto';
-import { Button } from '@/components/ui/Button';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { DESKTOP, MobileSidebar, Sidebar } from '@/components/notes/Sidebar';
-import { EditorPane, SidebarButtons } from '@/components/notes/EditorPane';
+import { EditorPane } from '@/components/notes/EditorPane';
+import { HomeView } from '@/components/notes/HomeView';
 import { LockedNotePane, type LockedState } from '@/components/notes/LockedNotePane';
 import { LockDialog, type LockDialogMode } from '@/components/notes/LockDialog';
 import { NotesSkeleton } from '@/components/notes/NotesSkeleton';
@@ -443,6 +441,12 @@ export default function NotesPage() {
 
   const clearFocusTitle = useCallback(() => setFocusTitleId(null), []);
 
+  // Home (CNOTE-23): closing the open note shows Home in the main area
+  const goHome = useCallback(() => {
+    setSelectedNoteId(null);
+    closeDrawerForNavigation();
+  }, [closeDrawerForNavigation]);
+
   // The banner goes away once every older note is updated, or when hidden; focus moves to the note area
   const focusNoteArea = () => document.getElementById('note-editor')?.focus();
   const updateOlderNotes = () => {
@@ -496,6 +500,8 @@ export default function NotesPage() {
     unlockedTitles,
     search,
     onOpenResult: openSearchResult,
+    onHome: goHome,
+    homeActive: selectedNote === null,
   };
   const toggles = {
     sidebarHidden: isSidebarHidden,
@@ -568,32 +574,15 @@ export default function NotesPage() {
             {...toggles}
           />
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col bg-canvas md:rounded-xl">
-            <div className="flex shrink-0 items-center gap-1 px-2 py-2 md:px-4">
-              <SidebarButtons {...toggles} />
-            </div>
-            <div className="flex flex-1 items-center justify-center overflow-y-auto p-4">
-              {activeNotes.length === 0 && archivedNotes.length === 0 ? (
-                <EmptyState
-                  icon={NotebookPen}
-                  title="No notes yet"
-                  className="w-full max-w-md"
-                  action={
-                    <Button variant="primary" onClick={() => void createNewNote()}>
-                      <Plus aria-hidden className="size-5" />
-                      New note
-                    </Button>
-                  }
-                >
-                  Write your first note. It saves as you type.
-                </EmptyState>
-              ) : (
-                <EmptyState icon={FileText} title="No note open" className="w-full max-w-md">
-                  Pick a note from the list, or create a new one.
-                </EmptyState>
-              )}
-            </div>
-          </div>
+          <HomeView
+            notes={localNotes}
+            decrypted={plain}
+            unlockedTitles={unlockedTitles}
+            now={now}
+            onSelect={handleNoteSelect}
+            onCreate={() => void createNewNote()}
+            {...toggles}
+          />
         )}
       </main>
 
