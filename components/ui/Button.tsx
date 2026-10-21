@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ComponentType, SVGProps } from 'react';
+import type { ButtonHTMLAttributes, ComponentType, Ref, SVGProps } from 'react';
 import { cn } from '@/lib/cn';
 
 type Variant = 'primary' | 'secondary' | 'tertiary' | 'ghost' | 'danger';
@@ -26,6 +26,7 @@ const BASE =
   'disabled:cursor-not-allowed disabled:opacity-50';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  ref?: Ref<HTMLButtonElement>;
   variant?: Variant;
   size?: Size;
 }

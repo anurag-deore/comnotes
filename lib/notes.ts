@@ -1,9 +1,10 @@
 // The only place that talks to Firestore about notes (ADR 0001)
 import {
-  addDoc, collection, doc, DocumentData, onSnapshot, orderBy, query, runTransaction, serverTimestamp, Timestamp,
+  addDoc, collection, doc, DocumentData, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, Timestamp,
   updateDoc, writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { chunkBatches, utf8Length, type ImportedNote } from '@/lib/backup';
 import { Note } from '@/types/note';
 
 // What the editor sends to be saved: the local fields plus the rev they were based on
@@ -28,7 +29,7 @@ const toDate = (value: unknown) => (value instanceof Timestamp ? value.toDate() 
 export function toNote(id: string, data: DocumentData): Note {
   return {
     id,
-    title: data.title,
+    title: typeof data.title === 'string' ? data.title : '',
     content: data.content ?? '',
     rev: data.rev ?? 0,
     createdAt: toDate(data.createdAt),
@@ -44,6 +45,56 @@ export function subscribeNotes(onNotes: (notes: Note[]) => void, onError: (error
     (snapshot) => onNotes(snapshot.docs.map((d) => toNote(d.id, d.data({ serverTimestamps: 'estimate' })))),
     onError,
   );
+}
+
+// Every note, Trash included, for a backup. No orderBy: a query ordered by updatedAt would
+// leave out legacy documents that don't have it. A missing timestamp falls back to the other.
+export async function fetchAllNotes(): Promise<Note[]> {
+  const snapshot = await getDocs(notesRef());
+  return snapshot.docs.map((d) => {
+    const data = d.data({ serverTimestamps: 'estimate' });
+    const note = toNote(d.id, data);
+    const hasCreated = data.createdAt instanceof Timestamp;
+    const hasUpdated = data.updatedAt instanceof Timestamp;
+    if (hasCreated && !hasUpdated) note.updatedAt = note.createdAt;
+    if (hasUpdated && !hasCreated) note.createdAt = note.updatedAt;
+    return note;
+  });
+}
+
+// Thrown when an import stops part-way; the batches before it were written
+export class ImportError extends Error {
+  constructor(readonly written: number, options?: ErrorOptions) {
+    super(`Import stopped after ${written} notes`, options);
+    this.name = 'ImportError';
+  }
+}
+
+// Writes notes from a backup as new documents (new ids, rev 0, the backup's timestamps).
+// Never touches existing notes. Resolves to how many were written.
+export async function importNotes(notes: ImportedNote[], onProgress?: (written: number) => void) {
+  let written = 0;
+  // Approximate bytes per write, so a batch stays under Firestore's request size limit
+  const chunks = chunkBatches(notes, (note) => utf8Length(note.title) + utf8Length(note.content) + 200, BATCH_LIMIT);
+  for (const chunk of chunks) {
+    const batch = writeBatch(db);
+    chunk.forEach((note) => batch.set(doc(notesRef()), {
+      title: note.title,
+      content: note.content,
+      rev: 0,
+      createdAt: Timestamp.fromDate(note.createdAt),
+      updatedAt: Timestamp.fromDate(note.updatedAt),
+      deletedAt: note.deletedAt ? Timestamp.fromDate(note.deletedAt) : null,
+    }));
+    try {
+      await batch.commit();
+    } catch (error) {
+      throw new ImportError(written, { cause: error });
+    }
+    written += chunk.length;
+    onProgress?.(written);
+  }
+  return written;
 }
 
 export async function createNote(): Promise<Note> {

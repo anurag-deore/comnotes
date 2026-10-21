@@ -5,6 +5,7 @@ const firestore = vi.hoisted(() => {
     constructor(private readonly ms: number) {}
     toDate() { return new Date(this.ms); }
     static now() { return new Timestamp(1_000); }
+    static fromDate(date: Date) { return new Timestamp(date.getTime()); }
   }
   return {
     Timestamp,
@@ -14,6 +15,7 @@ const firestore = vi.hoisted(() => {
     query: vi.fn((ref: unknown, ...constraints: unknown[]) => ({ ref, constraints })),
     orderBy: vi.fn((field: string, dir: string) => ({ orderBy: field, dir })),
     onSnapshot: vi.fn(),
+    getDocs: vi.fn(),
     addDoc: vi.fn(),
     updateDoc: vi.fn(),
     writeBatch: vi.fn(),
@@ -27,7 +29,8 @@ const db = vi.hoisted(() => ({ name: 'test-db' }));
 vi.mock('@/lib/firebase', () => ({ db }));
 
 import {
-  createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, saveNote, subscribeNotes, toNote, trashNote,
+  createNote, deleteNotesForever, fetchAllNotes, importNotes, purgeExpiredTrash, restoreNote, saveNote, subscribeNotes,
+  toNote, trashNote,
 } from '@/lib/notes';
 import type { Note } from '@/types/note';
 
@@ -62,6 +65,11 @@ describe('toNote', () => {
     expect(toNote('a', { title: 'T' }).deletedAt).toBeNull();
     expect(toNote('a', { title: 'T', deletedAt: null }).deletedAt).toBeNull();
     expect(toNote('a', { title: 'T', deletedAt: new Timestamp(3) }).deletedAt).toEqual(new Date(3));
+  });
+
+  test('CNOTE-19 AC-4: a missing title reads as empty', () => {
+    expect(toNote('a', {}).title).toBe('');
+    expect(toNote('a', { title: 3 }).title).toBe('');
   });
 
   test('keeps an existing rev', () => {
@@ -151,11 +159,11 @@ describe('createNote', () => {
   });
 });
 
-// Fake write batches that record what each one deletes
+// Fake write batches that record what each one writes
 function batches() {
-  const made: { delete: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> }[] = [];
+  const made: { delete: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> }[] = [];
   firestore.writeBatch.mockImplementation(() => {
-    const batch = { delete: vi.fn(), commit: vi.fn(async () => {}) };
+    const batch = { delete: vi.fn(), set: vi.fn(), commit: vi.fn(async () => {}) };
     made.push(batch);
     return batch;
   });
@@ -208,6 +216,82 @@ describe('trash', () => {
   test('AC-5: purgeExpiredTrash writes nothing when nothing has expired', async () => {
     batches();
     await expect(purgeExpiredTrash([trashed('live', null)], new Date(100 * DAY))).resolves.toBe(0);
+    expect(firestore.writeBatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('fetchAllNotes (CNOTE-19 AC-4)', () => {
+  test('reads the whole collection without orderBy, so legacy notes without updatedAt are included', async () => {
+    const data = vi.fn();
+    firestore.getDocs.mockResolvedValue({
+      docs: [
+        { id: 'new', data: () => ({ title: 'N', content: 'c', rev: 2, createdAt: new Timestamp(1), updatedAt: new Timestamp(2) }) },
+        { id: 'legacy', data: () => ({ title: 'L', content: 'q', createdAt: new Timestamp(5) }) },
+        { id: 'older', data: () => ({ content: 'x', updatedAt: new Timestamp(7) }) },
+        { id: 'pending', data },
+      ],
+    });
+    data.mockReturnValue({ title: 'P', content: '', createdAt: new Timestamp(9), updatedAt: new Timestamp(9) });
+
+    const notes = await fetchAllNotes();
+    expect(firestore.getDocs).toHaveBeenCalledWith({ path: 'notes' });
+    expect(firestore.query).not.toHaveBeenCalled();
+    expect(firestore.orderBy).not.toHaveBeenCalled();
+    expect(data).toHaveBeenCalledWith({ serverTimestamps: 'estimate' });
+    expect(notes.map((n) => [n.id, n.title, n.createdAt.getTime(), n.updatedAt.getTime()])).toEqual([
+      ['new', 'N', 1, 2],
+      ['legacy', 'L', 5, 5],
+      ['older', '', 7, 7],
+      ['pending', 'P', 9, 9],
+    ]);
+  });
+});
+
+describe('importNotes (CNOTE-19 AC-11, AC-14)', () => {
+  const imported = (i: number, deletedAt: Date | null = null) => ({
+    title: `T${i}`, content: `<p>${i}</p>`, createdAt: new Date(10 + i), updatedAt: new Date(20 + i), deletedAt,
+  });
+
+  test('writes each note as a new document with rev 0 and the backup timestamps', async () => {
+    const made = batches();
+    await expect(importNotes([imported(1), imported(2, new Date(99))])).resolves.toBe(2);
+
+    expect(made).toHaveLength(1);
+    expect(made[0].delete).not.toHaveBeenCalled();
+    expect(made[0].set.mock.calls).toEqual([
+      [{ path: 'notes/new-id', id: 'new-id' }, {
+        title: 'T1', content: '<p>1</p>', rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21), deletedAt: null,
+      }],
+      [{ path: 'notes/new-id', id: 'new-id' }, {
+        title: 'T2', content: '<p>2</p>', rev: 0, createdAt: new Timestamp(12), updatedAt: new Timestamp(22), deletedAt: new Timestamp(99),
+      }],
+    ]);
+    // A new id each time: doc() on the collection, never doc(db, 'notes', backupId)
+    expect(firestore.doc).toHaveBeenCalledWith({ path: 'notes' });
+    expect(firestore.doc).toHaveBeenCalledTimes(2);
+  });
+
+  test('batches of at most 500, reporting progress after each', async () => {
+    const made = batches();
+    const progress = vi.fn();
+    await importNotes(Array.from({ length: 501 }, (_, i) => imported(i)), progress);
+    expect(made.map((b) => b.set.mock.calls.length)).toEqual([500, 1]);
+    expect(progress.mock.calls).toEqual([[500], [501]]);
+  });
+
+  test('a failed batch reports how many were written before it', async () => {
+    const made = batches();
+    firestore.writeBatch.mockImplementationOnce(() => {
+      const batch = { delete: vi.fn(), set: vi.fn(), commit: vi.fn(async () => { throw new Error('quota'); }) };
+      made.push(batch);
+      return batch;
+    });
+    await expect(importNotes([imported(1)])).rejects.toMatchObject({ written: 0 });
+  });
+
+  test('nothing to import writes nothing', async () => {
+    batches();
+    await expect(importNotes([])).resolves.toBe(0);
     expect(firestore.writeBatch).not.toHaveBeenCalled();
   });
 });

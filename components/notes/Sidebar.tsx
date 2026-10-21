@@ -8,6 +8,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { NoteListItem } from '@/components/notes/NoteListItem';
 import { TrashView } from '@/components/notes/TrashView';
 import { ThemeSwitcher } from '@/components/ui/ThemeSwitcher';
+import { BackupDialog } from '@/components/notes/BackupDialog';
 
 export interface SidebarProps {
   notes: Note[];
@@ -25,7 +26,7 @@ export interface SidebarProps {
   headerAction?: ReactNode;
 }
 
-// Notes list (or Trash), the New note call to action and Lock. Used by the desktop
+// Notes list (or Trash), the New note call to action, theme, Backup and Lock. Used by the desktop
 // sidebar and the mobile drawer.
 export function Sidebar({
   notes, trashedNotes, selectedId, now, showTrash, onShowTrash, onSelect, onCreate, onRestore, onDeleteForever, onLock,
@@ -67,6 +68,8 @@ export function Sidebar({
       </nav>
 
       <ThemeSwitcher />
+
+      <BackupDialog />
 
       <div className="flex gap-2">
         {!showTrash && (

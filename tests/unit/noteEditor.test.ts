@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { Editor } from '@tiptap/core';
 import { isAllowedImageSrc, isAllowedLinkHref, noteExtensions } from '@/lib/editorExtensions';
-import { createContentSync } from '@/lib/editorContent';
+import { createContentSync, sanitizeNoteHtml } from '@/lib/editorContent';
 import { convertQuillHtml } from '@/lib/quillToTiptap';
 
 const editors: Editor[] = [];
@@ -184,5 +184,30 @@ describe('markdown shortcuts (AC-8)', () => {
     ['`code` ', 'code'],
   ])('%s', (input, selector) => {
     expect(type(load('<p></p>'), input).querySelector(selector)).not.toBeNull();
+  });
+});
+
+describe('sanitizeNoteHtml (CNOTE-19 AC-10)', () => {
+  test('keeps only what the editor would: no scripts, handlers, javascript: links or bad images', () => {
+    const html = sanitizeNoteHtml(
+      '<p onclick="x()">hi <a href="javascript:alert(1)">bad</a> <a href="https://example.com">ok</a></p>' +
+        '<script>alert(1)</script><img src="javascript:alert(1)"><img src="x.png" onerror="alert(1)"><iframe src="https://evil"></iframe>',
+    );
+    expect(html).toBe(
+      '<p>hi bad <a target="_blank" rel="noopener noreferrer nofollow" href="https://example.com">ok</a></p>',
+    );
+  });
+
+  test('converts legacy Quill HTML like the editor does on load', () => {
+    expect(sanitizeNoteHtml('<ul><li data-list="checked">done</li></ul>')).toBe(
+      '<ul data-type="taskList"><li data-checked="true" data-type="taskItem"><label><input type="checkbox" checked="checked"><span></span></label><div><p>done</p></div></li></ul>',
+    );
+  });
+
+  test('editor output is stable, and empty stays empty', () => {
+    const editor = load(QUILL_NOTE);
+    expect(sanitizeNoteHtml(editor.getHTML())).toBe(editor.getHTML());
+    expect(sanitizeNoteHtml('')).toBe('');
+    expect(sanitizeNoteHtml('  ')).toBe('');
   });
 });
