@@ -32,7 +32,8 @@ const BATCH_LIMIT = 500;
 
 const notesRef = () => collection(db, 'notes');
 
-// Notes written before CNOTE-5 have no rev and count as rev 0; notes before CNOTE-6 have no deletedAt.
+// Notes written before CNOTE-5 have no rev and count as rev 0; notes before CNOTE-6 have no deletedAt,
+// notes before CNOTE-17 no archivedAt (missing = not archived, so no schema bump for it).
 // A missing date falls back to the other one, then to the epoch (CNOTE-21).
 // A locked note shows no title or content outside its ciphertext, even if a stray one is stored.
 export function toNote(id: string, data: DocumentData): Note {
@@ -44,6 +45,7 @@ export function toNote(id: string, data: DocumentData): Note {
     rev: data.rev ?? 0,
     ...noteDates(data),
     deletedAt: data.deletedAt instanceof Timestamp ? data.deletedAt.toDate() : null,
+    archivedAt: data.archivedAt instanceof Timestamp ? data.archivedAt.toDate() : null,
     locked,
     encrypted: locked && isEncryptedPayload(data.encrypted) ? data.encrypted : null,
   };
@@ -53,7 +55,7 @@ export function toNote(id: string, data: DocumentData): Note {
 const lockedFields = (payload: EncryptedPayload) => ({ title: '', content: '', encrypted: payload });
 const plainFields = (title: string, content: string) => ({ title, content, encrypted: null });
 // What every new note starts with besides its text and dates: the whole current schema (CNOTE-21)
-const newNoteFields = { rev: 0, deletedAt: null, schemaVersion: SCHEMA_VERSION } as const;
+const newNoteFields = { rev: 0, deletedAt: null, archivedAt: null, schemaVersion: SCHEMA_VERSION } as const;
 
 function resealer(keys: NoteKeys | undefined) {
   if (!keys) throw new Error('A locked note needs its key to be copied');
@@ -176,6 +178,7 @@ export async function importNotes(notes: ImportedNote[], onProgress?: (written: 
       createdAt: Timestamp.fromDate(note.createdAt),
       updatedAt: Timestamp.fromDate(note.updatedAt),
       deletedAt: note.deletedAt ? Timestamp.fromDate(note.deletedAt) : null,
+      archivedAt: note.archivedAt ? Timestamp.fromDate(note.archivedAt) : null,
       schemaVersion: SCHEMA_VERSION,
     }));
     try {
@@ -196,7 +199,7 @@ export async function createNote(): Promise<Note> {
 }
 
 // Saves one note if nobody else saved it since draft.rev; otherwise keeps both versions.
-// A note in Trash still saves and stays in Trash. A locked note's draft is written as the
+// A note in Trash still saves and stays in Trash; an archived note stays archived (CNOTE-17). A locked note's draft is written as the
 // ciphertext it carries; its conflict copy is re-encrypted for the copy (CNOTE-7), which needs
 // `keys`: without them the save throws and is retried, it never falls back to plaintext.
 // A plain draft clears `encrypted`, which is how Remove lock is saved. The update doesn't stamp
@@ -219,7 +222,7 @@ export function saveNote(draft: NoteDraft, keys?: NoteKeys): Promise<SaveResult>
       tx.set(copyRef, { ...text, ...newNoteFields, createdAt: now, updatedAt: now });
       const copy: Note = {
         id: copyRef.id, title: text.title, content: text.content, rev: 0, createdAt: now.toDate(), updatedAt: now.toDate(),
-        deletedAt: null, locked: !!sealed, encrypted: text.encrypted,
+        deletedAt: null, archivedAt: null, locked: !!sealed, encrypted: text.encrypted,
       };
       return { status: 'conflict', server, copy };
     }
@@ -242,6 +245,16 @@ export function trashNote(id: string) {
 
 export function restoreNote(id: string) {
   return updateDoc(doc(db, 'notes', id), { deletedAt: null });
+}
+
+// Archive (CNOTE-17) works like Trash: only archivedAt changes, so open editors don't conflict and
+// the note keeps its place by updatedAt. deletedAt isn't touched: Trash wins (lib/noteViews.ts).
+export function archiveNote(id: string) {
+  return updateDoc(doc(db, 'notes', id), { archivedAt: serverTimestamp() });
+}
+
+export function unarchiveNote(id: string) {
+  return updateDoc(doc(db, 'notes', id), { archivedAt: null });
 }
 
 export async function deleteNotesForever(ids: string[]) {

@@ -1,5 +1,7 @@
 // Motion helpers (CNOTE-16). Pure: the window and document are passed in, so they are unit-tested
 // without a browser. Styling of the transitions lives in app/globals.css.
+import { visibleNotes, type NoteView } from '@/lib/noteViews';
+import type { Note } from '@/types/note';
 
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -25,20 +27,15 @@ export function listOrderChanged(prev: readonly string[], next: readonly string[
   return prev.length !== next.length || prev.some((id, index) => id !== next[index]);
 }
 
-interface ListedNote {
-  id: string;
-  deletedAt: unknown;
-}
+type ListedNote = Pick<Note, 'id' | 'deletedAt' | 'archivedAt'>;
 
-const idsWhere = (notes: readonly ListedNote[], trashed: boolean) =>
-  notes.filter((note) => (note.deletedAt !== null) === trashed).map((note) => note.id);
+const VIEWS: readonly NoteView[] = ['notes', 'archive', 'trash'];
 
-// Whether the notes list or the Trash list gained, lost or re-ordered rows (worth animating)
+const idsIn = (notes: readonly ListedNote[], view: NoteView) => visibleNotes(notes, view).map((note) => note.id);
+
+// Whether the notes list, Archive or Trash gained, lost or re-ordered rows (worth animating)
 export function noteListsChanged(prev: readonly ListedNote[], next: readonly ListedNote[]): boolean {
-  return (
-    listOrderChanged(idsWhere(prev, false), idsWhere(next, false)) ||
-    listOrderChanged(idsWhere(prev, true), idsWhere(next, true))
-  );
+  return VIEWS.some((view) => listOrderChanged(idsIn(prev, view), idsIn(next, view)));
 }
 
 // A view-transition-name must be a CSS identifier; Firestore ids are, but don't rely on it

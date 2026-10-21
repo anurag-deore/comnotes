@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo } from 'react';
+import { memo, useMemo, type ReactNode } from 'react';
 import { Lock } from 'lucide-react';
 import type { Note } from '@/types/note';
 import { formatRelativeTime, notePreview } from '@/lib/noteDisplay';
@@ -14,21 +14,23 @@ interface NoteListItemProps {
   onSelect: (id: string) => void;
   // A locked note's title once decrypted this session (CNOTE-7)
   unlockedTitle?: string;
+  // A button beside the row (Archive: Unarchive), never inside the row's own button
+  action?: ReactNode;
 }
 
 // A sidebar row: white card; the open note gets the lime indicator, an ink outline and aria-current
 // A locked note shows a placeholder preview, never decrypted text
-export const NoteListItem = memo(function NoteListItem({ note, active, now, onSelect, unlockedTitle }: NoteListItemProps) {
+export const NoteListItem = memo(function NoteListItem({ note, active, now, onSelect, unlockedTitle, action }: NoteListItemProps) {
   const preview = useMemo(() => (note.locked ? LOCKED_PREVIEW : notePreview(note.content)), [note.locked, note.content]);
 
   return (
-    <li data-motion-row={note.id}>
+    <li data-motion-row={note.id} className={cn(action && 'flex items-center gap-1')}>
       <button
         type="button"
         onClick={() => onSelect(note.id)}
         aria-current={active ? 'true' : undefined}
         className={cn(
-          'relative flex w-full flex-col gap-0.5 overflow-hidden rounded-sm border bg-canvas py-3 pr-4 pl-5 text-left',
+          'relative flex w-full min-w-0 flex-col gap-0.5 overflow-hidden rounded-sm border bg-canvas py-3 pr-4 pl-5 text-left',
           'transition-[color,background-color,border-color,scale] motion-safe:active:scale-[0.98]',
           active ? 'border-ink' : 'border-transparent hover:border-canvas-soft hover:bg-primary-pale/40',
         )}
@@ -49,6 +51,7 @@ export const NoteListItem = memo(function NoteListItem({ note, active, now, onSe
         </span>
         <span className="truncate font-reading text-body-sm text-body">{preview}</span>
       </button>
+      {action}
     </li>
   );
 });

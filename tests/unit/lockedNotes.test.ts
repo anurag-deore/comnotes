@@ -11,7 +11,7 @@ const payload = (fill = 1): EncryptedPayload => ({
 });
 
 const note = (over: Partial<Note> = {}): Note => ({
-  id: 'a', title: 'T', content: '<p>c</p>', rev: 2, createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null,
+  id: 'a', title: 'T', content: '<p>c</p>', rev: 2, createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null, archivedAt: null,
   locked: false, encrypted: null, ...over,
 });
 

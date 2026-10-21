@@ -69,6 +69,8 @@ export function TrashView({ notes, now, onRestore, onDeleteForever }: TrashViewP
               </time>
               {' · '}
               {daysLeftLabel(daysLeftInTrash(note.deletedAt, now, TRASH_DAYS))}
+              {/* Trash wins over Archive; Restore puts it back in Archive (CNOTE-17) */}
+              {note.archivedAt && ' · From Archive'}
             </p>
             {confirming === note.id ? (
               <div role="group" aria-label={`Confirm deleting ${noteLabel(note)}`} className="mt-2 flex flex-wrap items-center gap-2">

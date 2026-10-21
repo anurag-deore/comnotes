@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, type ChangeEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Archive, Download, Loader2, Upload, X } from 'lucide-react';
+import { DatabaseBackup, Download, Loader2, Upload, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ERRORS, MAX_BACKUP_BYTES, parseBackup, planImport, type ImportedNote } from '@/lib/backup';
 import { sanitizeNoteHtml } from '@/lib/editorContent';
@@ -138,13 +138,15 @@ export function BackupDialog() {
   }[phase];
 
   const trashed = plan?.create.filter((note) => note.deletedAt).length ?? 0;
+  // Trash wins (CNOTE-17), so an archived note in Trash counts as in Trash
+  const archived = plan?.create.filter((note) => note.archivedAt && !note.deletedAt).length ?? 0;
   const locked = plan?.create.filter((note) => note.sealed).length ?? 0;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Trigger asChild>
         <Button variant="ghost" size="sm" className="w-full">
-          <Archive aria-hidden className="size-4" />
+          <DatabaseBackup aria-hidden className="size-4" />
           Backup
         </Button>
       </Dialog.Trigger>
@@ -172,7 +174,11 @@ export function BackupDialog() {
               <ul className="mt-2 list-disc pl-5 text-body-sm text-body">
                 <li>
                   {plural(plan.create.length, 'new note')} to add
-                  {trashed > 0 && ` (${trashed.toLocaleString()} in Trash)`}
+                  {(trashed > 0 || archived > 0) &&
+                    ` (${[
+                      archived > 0 && `${archived.toLocaleString()} archived`,
+                      trashed > 0 && `${trashed.toLocaleString()} in Trash`,
+                    ].filter(Boolean).join(', ')})`}
                 </li>
                 {locked > 0 && <li>{plural(locked, 'locked note')}, still encrypted with your passphrase</li>}
                 {plan.duplicates > 0 && <li>{plural(plan.duplicates, 'duplicate')} skipped</li>}
@@ -205,7 +211,7 @@ export function BackupDialog() {
               <section aria-labelledby={`${id}-export`}>
                 <h3 id={`${id}-export`} className="text-body-md font-semibold">Export</h3>
                 <p className="mt-1 text-body-sm text-body">
-                  One zip with every note, Trash included: <code>notes.json</code> for importing, and a Markdown file per note.
+                  One zip with every note, Archive and Trash included: <code>notes.json</code> for importing, and a Markdown file per note.
                   Locked notes stay encrypted.
                 </p>
                 <Button

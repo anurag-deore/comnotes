@@ -5,6 +5,9 @@
 //   2025 (initial app): { title, content (Quill HTML), createdAt, updatedAt } with Timestamps
 //   CNOTE-5: rev · CNOTE-6: deletedAt · CNOTE-7: encrypted · CNOTE-14: Tiptap HTML
 //   CNOTE-21: schemaVersion 2 = every field present and valid, content is editor (Tiptap) HTML
+//   CNOTE-17: archivedAt, optional within schemaVersion 2. Missing reads as null (not archived), so a
+//     v2 note without it is complete and isn't migrated; new notes write it. No version bump: that
+//     would ask every user to run the migration again for a field that changes nothing.
 import { Timestamp, type DocumentData } from 'firebase/firestore';
 import { sanitizeNoteHtml } from '@/lib/editorContent';
 

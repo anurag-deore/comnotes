@@ -4,9 +4,10 @@ import { isEncryptedPayload, type EncryptedPayload } from '@/lib/noteCrypto';
 import type { Note, SealedText } from '@/types/note';
 
 export const BACKUP_FORMAT = 'comnotes-backup';
-// Version 2 (CNOTE-7) adds `encrypted` to every note; version 1 files still import
-export const BACKUP_VERSION = 2;
-const READABLE_VERSIONS = [1, 2];
+// Version 2 (CNOTE-7) adds `encrypted` to every note, version 3 (CNOTE-17) `archivedAt`;
+// version 1 and 2 files still import, as not archived
+export const BACKUP_VERSION = 3;
+const READABLE_VERSIONS = [1, 2, 3];
 // Larger files (or a notes.json that unzips larger) are refused before parsing
 export const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
 export const MAX_BACKUP_NOTES = 10_000;
@@ -22,6 +23,7 @@ export interface BackupNote {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  archivedAt: string | null;
   // A locked note's ciphertext (title and content are then ''); null for a plain note
   encrypted: EncryptedPayload | null;
 }
@@ -35,7 +37,7 @@ export interface Backup {
 
 // A note read from a backup, ready to be written as a new note. A locked one keeps its id,
 // because its ciphertext is bound to it.
-export type ImportedNote = Pick<Note, 'title' | 'content' | 'createdAt' | 'updatedAt' | 'deletedAt'> & {
+export type ImportedNote = Pick<Note, 'title' | 'content' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'archivedAt'> & {
   sealed: SealedText | null;
 };
 
@@ -54,6 +56,8 @@ export const ERRORS = {
 const BACKUP_KEYS = ['format', 'version', 'exportedAt', 'notes'];
 const NOTE_KEYS_V1 = ['id', 'title', 'content', 'rev', 'createdAt', 'updatedAt', 'deletedAt'];
 const NOTE_KEYS_V2 = [...NOTE_KEYS_V1, 'encrypted'];
+const NOTE_KEYS_V3 = [...NOTE_KEYS_V2, 'archivedAt'];
+const NOTE_KEYS: Record<number, string[]> = { 1: NOTE_KEYS_V1, 2: NOTE_KEYS_V2, 3: NOTE_KEYS_V3 };
 // A Firestore document id: no slashes or dots, not __reserved__
 const DOC_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const RESERVED_ID = /^__.*__$/;
@@ -68,6 +72,7 @@ const toBackupNote = (note: Note): BackupNote => ({
   createdAt: note.createdAt.toISOString(),
   updatedAt: note.updatedAt.toISOString(),
   deletedAt: note.deletedAt ? note.deletedAt.toISOString() : null,
+  archivedAt: note.archivedAt ? note.archivedAt.toISOString() : null,
   encrypted: note.encrypted,
 });
 
@@ -115,7 +120,7 @@ function parseIsoDate(value: unknown): Date | null {
 export const utf8Length = (text: string) => new TextEncoder().encode(text).length;
 
 function parseNote(value: unknown, version: number): ImportedNote | null {
-  if (!isPlainObject(value) || !hasExactKeys(value, version === 1 ? NOTE_KEYS_V1 : NOTE_KEYS_V2)) return null;
+  if (!isPlainObject(value) || !hasExactKeys(value, NOTE_KEYS[version])) return null;
   const { id, title, content, rev, deletedAt } = value;
   if (typeof id !== 'string' || id === '' || typeof title !== 'string' || typeof content !== 'string') return null;
   if (typeof rev !== 'number' || !Number.isSafeInteger(rev) || rev < 0) return null;
@@ -123,13 +128,18 @@ function parseNote(value: unknown, version: number): ImportedNote | null {
   const updatedAt = parseIsoDate(value.updatedAt);
   const deleted = deletedAt === null ? null : parseIsoDate(deletedAt);
   if (!createdAt || !updatedAt || (deletedAt !== null && !deleted)) return null;
+  // Absent before version 3
+  const archivedAt = value.archivedAt ?? null;
+  const archived = archivedAt === null ? null : parseIsoDate(archivedAt);
+  if (archivedAt !== null && !archived) return null;
   if (utf8Length(title) + utf8Length(content) > MAX_NOTE_BYTES) return null;
   const encrypted = value.encrypted ?? null;
-  if (encrypted === null) return { title, content, createdAt, updatedAt, deletedAt: deleted, sealed: null };
+  const dates = { createdAt, updatedAt, deletedAt: deleted, archivedAt: archived };
+  if (encrypted === null) return { title, content, ...dates, sealed: null };
   // Locked: only ciphertext, and an id it can be written back under
   if (!isEncryptedPayload(encrypted) || title !== '' || content !== '') return null;
   if (!DOC_ID.test(id) || RESERVED_ID.test(id)) return null;
-  return { title, content, createdAt, updatedAt, deletedAt: deleted, sealed: { noteId: id, payload: encrypted } };
+  return { title, content, ...dates, sealed: { noteId: id, payload: encrypted } };
 }
 
 // Whole-file problems reject the file; a bad note is counted and skipped

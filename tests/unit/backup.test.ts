@@ -8,14 +8,14 @@ import { PBKDF2_ITERATIONS, bytesToBase64, type EncryptedPayload } from '@/lib/n
 
 const note = (over: Partial<Note> = {}): Note => ({
   id: 'a', title: 'Shopping', content: '<p>milk</p>', rev: 3,
-  createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null,
+  createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null, archivedAt: null,
   locked: false, encrypted: null, ...over,
 });
 
 const backupNote = (over: Partial<BackupNote> = {}): BackupNote => ({
   id: 'a', title: 'Shopping', content: '<p>milk</p>', rev: 3,
-  createdAt: '2026-01-02T03:04:05.006Z', updatedAt: '2026-02-03T04:05:06.007Z', deletedAt: null, encrypted: null,
-  ...over,
+  createdAt: '2026-01-02T03:04:05.006Z', updatedAt: '2026-02-03T04:05:06.007Z', deletedAt: null, archivedAt: null,
+  encrypted: null, ...over,
 });
 
 const file = (over: Record<string, unknown> = {}) =>
@@ -24,7 +24,7 @@ const file = (over: Record<string, unknown> = {}) =>
 const imported = (over: Partial<ImportedNote> = {}): ImportedNote => ({
   title: 'Shopping', content: '<p>milk</p>',
   createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null,
-  sealed: null, ...over,
+  archivedAt: null, sealed: null, ...over,
 });
 
 // Ciphertext as stored; the backup never needs the key
@@ -60,7 +60,7 @@ describe('buildBackup / parseBackup', () => {
     const backup = buildBackup([note(), trashed], now);
 
     expect(backup).toEqual({
-      format: 'comnotes-backup', version: 2, exportedAt: '2026-10-21T10:00:00.000Z',
+      format: 'comnotes-backup', version: 3, exportedAt: '2026-10-21T10:00:00.000Z',
       notes: [backupNote(), backupNote({ id: 'b', title: 'Old', deletedAt: '2026-10-01T00:00:00.000Z' })],
     });
   });
@@ -69,12 +69,17 @@ describe('buildBackup / parseBackup', () => {
     const notes = [
       note({ content: '<ul><li data-list="checked">legacy quill</li></ul>' }),
       note({ id: 'b', title: '', content: '', rev: 0, deletedAt: new Date('2026-10-01T00:00:00.000Z') }),
+      // CNOTE-17 AC-11: archived, and archived then trashed
+      note({ id: 'c', title: 'Filed', archivedAt: new Date('2026-09-01T00:00:00.000Z') }),
+      note({ id: 'd', title: 'Both', archivedAt: new Date('2026-09-01T00:00:00.000Z'), deletedAt: new Date('2026-10-01T00:00:00.000Z') }),
     ];
     const result = parseBackup(JSON.stringify(buildBackup(notes, new Date())));
     expect(result).toEqual({
       ok: true,
       invalid: 0,
-      notes: notes.map(({ title, content, createdAt, updatedAt, deletedAt }) => ({ title, content, createdAt, updatedAt, deletedAt, sealed: null })),
+      notes: notes.map(({ title, content, createdAt, updatedAt, deletedAt, archivedAt }) => (
+        { title, content, createdAt, updatedAt, deletedAt, archivedAt, sealed: null }
+      )),
     });
   });
 
@@ -90,7 +95,7 @@ describe('parseBackup rejects bad files (AC-8)', () => {
   test('null', () => expectError('null', /isn't a ComNotes backup/));
   test('wrong format', () => expectError(file({ format: 'other-app' }), /isn't a ComNotes backup/));
   test('missing format', () => expectError(JSON.stringify({ version: 1, exportedAt: '2026-10-21T00:00:00.000Z', notes: [] }), /isn't a ComNotes backup/));
-  test('newer version', () => expectError(file({ version: 3 }), /version 3 isn't supported/));
+  test('newer version', () => expectError(file({ version: 4 }), /version 4 isn't supported/));
   test('version as a string', () => expectError(file({ version: '1' }), /version isn't supported/));
   test('unknown top-level key', () => expectError(file({ extra: true }), /unexpected fields/));
   test('notes not an array', () => expectError(file({ notes: {} }), /damaged/));
@@ -122,6 +127,9 @@ describe('parseBackup per-note validation (AC-9)', () => {
     ['createdAt not ISO', { createdAt: '2026-01-02' }],
     ['updatedAt impossible date', { updatedAt: '2026-02-30T00:00:00.000Z' }],
     ['deletedAt a number', { deletedAt: 0 }],
+    ['archivedAt a number (CNOTE-17)', { archivedAt: 0 }],
+    ['archivedAt not ISO (CNOTE-17)', { archivedAt: 'last week' }],
+    ['archivedAt missing in version 3 (CNOTE-17)', { archivedAt: undefined }],
     ['an extra key', { color: 'red' }],
     ['too big', { content: 'x'.repeat(1_000_001) }],
   ])('%s → counted invalid, the valid note still imports', (_, over) => {
@@ -160,10 +168,20 @@ describe('locked notes in backups (CNOTE-7 AC-14, AC-15)', () => {
   });
 
   test('version 1 backups (no encrypted key) still import as plain notes', () => {
-    const v1 = omit(backupNote(), 'encrypted');
+    const v1 = omit(omit(backupNote(), 'encrypted'), 'archivedAt');
     expect(parseBackup(file({ version: 1, notes: [v1] }))).toMatchObject({ ok: true, invalid: 0, notes: [{ sealed: null }] });
     // ...and a version 1 note may not carry encrypted
-    expect(parseBackup(file({ version: 1, notes: [lockedBackupNote()] }))).toMatchObject({ ok: true, invalid: 1 });
+    expect(parseBackup(file({ version: 1, notes: [omit(lockedBackupNote(), 'archivedAt')] }))).toMatchObject({ ok: true, invalid: 1 });
+  });
+
+  test('CNOTE-17 AC-11: version 1 and 2 notes import as not archived; they may not carry archivedAt', () => {
+    const v1 = omit(omit(backupNote(), 'encrypted'), 'archivedAt');
+    const v2 = omit(lockedBackupNote(), 'archivedAt');
+    expect(parseBackup(file({ version: 1, notes: [v1] }))).toMatchObject({ ok: true, invalid: 0, notes: [{ archivedAt: null }] });
+    expect(parseBackup(file({ version: 2, notes: [v2] }))).toMatchObject({
+      ok: true, invalid: 0, notes: [{ archivedAt: null, sealed: { noteId: LOCKED_ID } }],
+    });
+    expect(parseBackup(file({ version: 2, notes: [backupNote()] }))).toMatchObject({ ok: true, invalid: 1 });
   });
 
   test.each([

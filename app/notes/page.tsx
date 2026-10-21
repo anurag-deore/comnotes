@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { FileText, NotebookPen, Plus } from 'lucide-react';
 import {
-  createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, subscribeNotes, trashNote,
+  archiveNote, createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, subscribeNotes, trashNote, unarchiveNote,
 } from '@/lib/notes';
+import { noteView, visibleNotes, type NoteView } from '@/lib/noteViews';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useNoteMigration } from '@/hooks/useNoteMigration';
 import { Note } from '@/types/note';
@@ -31,6 +32,25 @@ import { browserStorage, readSidebarHidden, writeSidebarHidden } from '@/lib/sid
 // A locked note's decrypted text and the IV of the payload it matches (CNOTE-7). Memory only.
 type Decrypted = NoteText & { iv: string };
 
+// A quiet toast with an Undo button (Trash, Archive)
+function undoToast(message: ReactNode, onUndo: () => void) {
+  toast(t => (
+    <span className="flex items-center gap-3">
+      <span className="min-w-0 truncate">{message}</span>
+      <button
+        type="button"
+        onClick={() => {
+          toast.dismiss(t.id);
+          onUndo();
+        }}
+        className="-my-2 min-h-11 shrink-0 rounded-sm px-2 font-semibold text-ink underline underline-offset-2"
+      >
+        Undo
+      </button>
+    </span>
+  ));
+}
+
 export default function NotesPage() {
   const { logout } = useAuth();
   const [localNotes, setLocalNotes] = useState<Note[]>([]);
@@ -43,7 +63,8 @@ export default function NotesPage() {
   // Read on the client only matters after loading, as the skeleton doesn't show the sidebar.
   const [isSidebarHidden, setIsSidebarHidden] = useState(() => readSidebarHidden(browserStorage()));
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [showTrash, setShowTrash] = useState(false);
+  // Which list the sidebar shows: notes, Archive (CNOTE-17) or Trash
+  const [view, setView] = useState<NoteView>('notes');
   // A just-created note whose title gets focus
   const [focusTitleId, setFocusTitleId] = useState<string | null>(null);
   const now = useNow();
@@ -96,16 +117,19 @@ export default function NotesPage() {
     if (!noteVault.canEncrypt()) setPlain({});
   }), []);
 
-  const activeNotes = useMemo(() => localNotes.filter(note => !note.deletedAt), [localNotes]);
+  // Neither archived nor in Trash; also what search will look through (lib/noteViews.ts)
+  const activeNotes = useMemo(() => visibleNotes(localNotes), [localNotes]);
+  const archivedNotes = useMemo(() => visibleNotes(localNotes, 'archive'), [localNotes]);
   const trashedNotes = useMemo(
     () => localNotes.filter((note): note is Note & { deletedAt: Date } => note.deletedAt !== null),
     [localNotes],
   );
 
-  // Derive the selected note from the notes not in Trash, so trashed notes can't be edited
+  // Derive the selected note from the notes not in Trash, so trashed notes can't be edited.
+  // Archived notes open and edit like any other (CNOTE-17).
   const selectedNote = useMemo(() => {
-    return activeNotes.find(note => note.id === selectedNoteId) || null;
-  }, [activeNotes, selectedNoteId]);
+    return localNotes.find(note => note.id === selectedNoteId && note.deletedAt === null) || null;
+  }, [localNotes, selectedNoteId]);
 
   // Keep the list live; changes from other tabs and devices arrive here
   // app/notes/layout.tsx only renders this page while unlocked
@@ -120,7 +144,7 @@ export default function NotesPage() {
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
           // Select the first note by default, only on initial load
-          setSelectedNoteId(serverNotes.find(note => !note.deletedAt)?.id ?? null);
+          setSelectedNoteId(visibleNotes(serverNotes)[0]?.id ?? null);
           setIsLoading(false);
           purgeExpiredTrash(serverNotes).catch(error => console.error('Error purging trash:', error));
         }
@@ -218,7 +242,7 @@ export default function NotesPage() {
       commitNotes(prevNotes => [createdNote, ...prevNotes.filter(note => note.id !== createdNote.id)]);
       setSelectedNoteId(createdNote.id);
       setFocusTitleId(createdNote.id);
-      setShowTrash(false);
+      setView('notes');
       closeDrawerForNavigation();
     } catch (error) {
       console.error('Error creating note:', error);
@@ -290,33 +314,56 @@ export default function NotesPage() {
     else void lockSelectedNote();
   };
 
+  // A note leaving its list selects the next one in that list (or the previous one, or none)
+  const selectNeighbourOf = (note: Note) => {
+    const list = visibleNotes(localNotes, noteView(note));
+    const index = list.findIndex(n => n.id === note.id);
+    setSelectedNoteId((list[index + 1] ?? list[index - 1])?.id ?? null);
+  };
+
   // Moves the selected note to Trash. Unsaved edits keep saving to it, so restoring brings them back.
   // The live snapshot shows the change at once and rolls it back if the write fails.
   const deleteSelectedNote = () => {
     if (!selectedNote) return;
     const { id } = selectedNote;
-    const title = noteLabel(selectedNote);
-    const index = activeNotes.findIndex(note => note.id === id);
-    setSelectedNoteId((activeNotes[index + 1] ?? activeNotes[index - 1])?.id ?? null);
+    selectNeighbourOf(selectedNote);
     trashNote(id).catch(error => {
       console.error('Error moving note to Trash:', error);
       toast.error('Failed to move note to Trash');
     });
-    toast(t => (
-      <span className="flex items-center gap-3">
-        <span className="min-w-0 truncate">Moved &quot;{title}&quot; to Trash</span>
-        <button
-          type="button"
-          onClick={() => {
-            toast.dismiss(t.id);
-            restore(id);
-          }}
-          className="-my-2 min-h-11 shrink-0 rounded-sm px-2 font-semibold text-ink underline underline-offset-2"
-        >
-          Undo
-        </button>
-      </span>
-    ));
+    undoToast(<>Moved &quot;{noteLabel(selectedNote)}&quot; to Trash</>, () => restore(id));
+  };
+
+  // Back to the notes list; `reselect` (Undo of Archive) opens it again
+  const unarchive = (id: string, reselect = false) => {
+    if (reselect) setSelectedNoteId(id);
+    unarchiveNote(id).catch(error => {
+      console.error('Error unarchiving note:', error);
+      toast.error('Failed to unarchive note');
+    });
+  };
+
+  // Unarchive from the editor or an Archive row: the note stays open if it was
+  const unarchiveWithToast = (note: Note) => {
+    unarchive(note.id);
+    toast(`Moved "${noteLabel(note)}" back to notes`);
+  };
+
+  // Archive (CNOTE-17): like Trash, the note leaves the list at once and Undo brings it back.
+  // Only archivedAt is written, so unsaved edits keep saving and a locked note isn't decrypted.
+  const toggleArchiveSelected = () => {
+    if (!selectedNote) return;
+    if (selectedNote.archivedAt) {
+      unarchiveWithToast(selectedNote);
+      return;
+    }
+    const { id } = selectedNote;
+    selectNeighbourOf(selectedNote);
+    archiveNote(id).catch(error => {
+      console.error('Error archiving note:', error);
+      toast.error('Failed to archive note');
+    });
+    undoToast(<>Archived &quot;{noteLabel(selectedNote)}&quot;</>, () => unarchive(id, true));
   };
 
   const deleteForever = (ids: string[]) => {
@@ -378,13 +425,18 @@ export default function NotesPage() {
 
   const sidebarProps = {
     notes: activeNotes,
+    archivedNotes,
     trashedNotes,
     selectedId: selectedNoteId,
     now,
-    showTrash,
-    onShowTrash: setShowTrash,
+    view,
+    onShowView: setView,
     onSelect: handleNoteSelect,
     onCreate: () => void createNewNote(),
+    onUnarchive: (id: string) => {
+      const note = archivedNotes.find(n => n.id === id);
+      if (note) unarchiveWithToast(note);
+    },
     onRestore: restore,
     onDeleteForever: deleteForever,
     onLock: () => void logout(),
@@ -441,6 +493,7 @@ export default function NotesPage() {
             note={selectedNote}
             state={lockedState}
             onTrash={deleteSelectedNote}
+            onToggleArchive={toggleArchiveSelected}
             // The form is about to be replaced by the editor; keep focus in the note area
             onUnlocked={() => document.getElementById('note-editor')?.focus()}
             {...toggles}
@@ -454,6 +507,7 @@ export default function NotesPage() {
             onTitleChange={handleTitleChange}
             onContentChange={handleEditorChange}
             onTrash={deleteSelectedNote}
+            onToggleArchive={toggleArchiveSelected}
             onToggleLock={toggleLock}
             {...toggles}
           />
@@ -463,7 +517,7 @@ export default function NotesPage() {
               <SidebarButtons {...toggles} />
             </div>
             <div className="flex flex-1 items-center justify-center overflow-y-auto p-4">
-              {activeNotes.length === 0 ? (
+              {activeNotes.length === 0 && archivedNotes.length === 0 ? (
                 <EmptyState
                   icon={NotebookPen}
                   title="No notes yet"

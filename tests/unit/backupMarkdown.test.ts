@@ -6,7 +6,7 @@ import { PBKDF2_ITERATIONS, bytesToBase64 } from '@/lib/noteCrypto';
 
 const note = (over: Partial<Note> = {}): Note => ({
   id: 'a', title: 'Shopping', content: '', rev: 0,
-  createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null,
+  createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null, archivedAt: null,
   locked: false, encrypted: null, ...over,
 });
 
@@ -60,6 +60,13 @@ describe('noteMarkdown (AC-5–AC-7)', () => {
   test('Trash notes also carry deleted', () => {
     const { markdown } = noteMarkdown(note({ deletedAt: new Date('2026-10-01T00:00:00.000Z') }), 'x', true);
     expect(markdown).toContain('\ndeleted: 2026-10-01T00:00:00.000Z\n---\n');
+  });
+
+  test('CNOTE-17 AC-11: archived notes carry archived', () => {
+    const archivedAt = new Date('2026-09-01T00:00:00.000Z');
+    const { markdown } = noteMarkdown(note({ archivedAt }), 'x', false);
+    expect(markdown).toContain('\narchived: 2026-09-01T00:00:00.000Z\n---\n');
+    expect(noteMarkdown(note(), 'x', false).markdown).not.toContain('archived:');
   });
 
   test('an empty note is just front matter', () => {

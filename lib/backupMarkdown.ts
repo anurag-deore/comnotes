@@ -118,6 +118,7 @@ function frontMatter(note: Note): string {
     `updated: ${note.updatedAt.toISOString()}`,
   ];
   if (note.deletedAt) lines.push(`deleted: ${note.deletedAt.toISOString()}`);
+  if (note.archivedAt) lines.push(`archived: ${note.archivedAt.toISOString()}`);
   if (note.locked) lines.push('locked: true');
   lines.push('---');
   return `${lines.join('\n')}\n\n`;

@@ -44,7 +44,9 @@ describe('listOrderChanged (AC-2)', () => {
 });
 
 describe('noteListsChanged (AC-2)', () => {
-  const note = (id: string, trashed = false) => ({ id, deletedAt: trashed ? new Date(0) : null });
+  const note = (id: string, trashed = false, archived = false) => ({
+    id, deletedAt: trashed ? new Date(0) : null, archivedAt: archived ? new Date(0) : null,
+  });
 
   test('content edits keep both lists as they are', () => {
     expect(noteListsChanged([note('a'), note('b'), note('t', true)], [note('a'), note('b'), note('t', true)])).toBe(false);
@@ -56,6 +58,15 @@ describe('noteListsChanged (AC-2)', () => {
     expect(noteListsChanged([note('a'), note('b')], [note('a'), note('b', true)])).toBe(true);
     expect(noteListsChanged([note('a'), note('b', true)], [note('a'), note('b')])).toBe(true);
     expect(noteListsChanged([note('a'), note('t', true)], [note('a')])).toBe(true);
+  });
+  test('CNOTE-17 AC-10: archiving, unarchiving and trashing an archived note are changes', () => {
+    expect(noteListsChanged([note('a'), note('b')], [note('a'), note('b', false, true)])).toBe(true);
+    expect(noteListsChanged([note('a'), note('b', false, true)], [note('a'), note('b')])).toBe(true);
+    expect(noteListsChanged([note('a', false, true)], [note('a', true, true)])).toBe(true);
+  });
+  test('CNOTE-17 AC-10: content edits with archived and trashed notes present are not a change', () => {
+    const list = [note('a'), note('b', false, true), note('c', true, true)];
+    expect(noteListsChanged(list, list.map((n) => ({ ...n })))).toBe(false);
   });
 });
 

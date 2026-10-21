@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { Lock, LockOpen, Menu, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Lock, LockOpen, Menu, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
 import type { Note } from '@/types/note';
 import type { SaveStatus as Status } from '@/lib/autosave';
 import { IconButton } from '@/components/ui/Button';
@@ -30,8 +30,28 @@ interface EditorPaneProps extends SidebarToggles {
   onTitleChange: (title: string) => void;
   onContentChange: (content: string) => void;
   onTrash: () => void;
+  onToggleArchive: () => void;
   // Lock note, or Remove lock when the open note is locked (CNOTE-7)
   onToggleLock: () => void;
+}
+
+// Archive, or Unarchive for an archived note (CNOTE-17); the label shows from 640px up, where the
+// header has room. Locked notes are archived without decrypting them.
+export function ArchiveControls({ archived, onToggleArchive }: { archived: boolean; onToggleArchive: () => void }) {
+  return (
+    <>
+      {archived && (
+        <span className="shrink-0 rounded-full bg-canvas-soft px-2.5 py-0.5 text-caption font-semibold text-body max-sm:hidden">
+          Archived
+        </span>
+      )}
+      <IconButton
+        label={archived ? 'Unarchive note' : 'Archive note'}
+        icon={archived ? ArchiveRestore : Archive}
+        onClick={onToggleArchive}
+      />
+    </>
+  );
 }
 
 // Buttons that open the drawer (phones) or hide/show the sidebar (768px and up)
@@ -51,10 +71,10 @@ export function SidebarButtons({ sidebarHidden, onToggleSidebar, onOpenDrawer }:
   );
 }
 
-// The open note: title, save status, Lock, Move to Trash, toolbar and content in one white card.
+// The open note: title, save status, Lock, Archive, Move to Trash, toolbar and content in one white card.
 // For a locked note `note` carries the decrypted text, held in memory only.
 export function EditorPane({
-  note, status, focusTitle, onTitleFocused, onTitleChange, onContentChange, onTrash, onToggleLock, ...toggles
+  note, status, focusTitle, onTitleFocused, onTitleChange, onContentChange, onTrash, onToggleArchive, onToggleLock, ...toggles
 }: EditorPaneProps) {
   const titleRef = useRef<HTMLInputElement>(null);
 
@@ -84,6 +104,7 @@ export function EditorPane({
           icon={note.locked ? LockOpen : Lock}
           onClick={onToggleLock}
         />
+        <ArchiveControls archived={note.archivedAt !== null} onToggleArchive={onToggleArchive} />
         <IconButton
           label="Move to Trash"
           icon={Trash2}

@@ -7,7 +7,7 @@ import type { Note } from '@/types/note';
 
 const note = (over: Partial<Note> = {}): Note => ({
   id: 'a', title: 'Plan', content: '<p>hello</p>', rev: 2,
-  createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null,
+  createdAt: new Date('2026-01-02T03:04:05.006Z'), updatedAt: new Date('2026-02-03T04:05:06.007Z'), deletedAt: null, archivedAt: null,
   locked: false, encrypted: null, ...over,
 });
 
@@ -29,7 +29,7 @@ describe('buildBackupZip (AC-2, AC-3, AC-7)', () => {
 
   test('notes.json is the full, pretty-printed backup', () => {
     const json = JSON.parse(strFromU8(unzipSync(buildBackupZip(notes, NOW))['notes.json']));
-    expect(json).toMatchObject({ format: 'comnotes-backup', version: 2, exportedAt: '2026-10-21T10:00:00.000Z' });
+    expect(json).toMatchObject({ format: 'comnotes-backup', version: 3, exportedAt: '2026-10-21T10:00:00.000Z' });
     expect(json.notes.map((n: { id: string }) => n.id)).toEqual(['a', 'b']);
     expect(json.notes[1].content).toBe(notes[1].content);
   });

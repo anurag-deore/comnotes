@@ -6,7 +6,7 @@ import type { Note } from '@/types/note';
 import { noteVault } from '@/lib/vault';
 import { LOCKED_TITLE } from '@/lib/lockedNotes';
 import { Button, IconButton } from '@/components/ui/Button';
-import { SidebarButtons, type SidebarToggles } from '@/components/notes/EditorPane';
+import { ArchiveControls, SidebarButtons, type SidebarToggles } from '@/components/notes/EditorPane';
 
 // needs-passphrase: no key for this note yet. decrypting: key present, decryption running.
 // failed: the key didn't open it (damaged). unreadable: payload from a newer version.
@@ -16,6 +16,7 @@ interface LockedNotePaneProps extends SidebarToggles {
   note: Note;
   state: LockedState;
   onTrash: () => void;
+  onToggleArchive: () => void;
   // The passphrase was right; the page decrypts the note and moves focus into it
   onUnlocked: () => void;
 }
@@ -27,7 +28,7 @@ const MESSAGES: Record<Exclude<LockedState, 'needs-passphrase'>, string> = {
 };
 
 // A locked note that isn't decrypted yet (CNOTE-7): the unlock form in place of the editor
-export function LockedNotePane({ note, state, onTrash, onUnlocked, ...toggles }: LockedNotePaneProps) {
+export function LockedNotePane({ note, state, onTrash, onToggleArchive, onUnlocked, ...toggles }: LockedNotePaneProps) {
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,6 +66,7 @@ export function LockedNotePane({ note, state, onTrash, onUnlocked, ...toggles }:
       <header className="flex shrink-0 items-center gap-1 border-b border-canvas-soft px-2 py-2 md:gap-3 md:px-4">
         <SidebarButtons {...toggles} />
         <h1 className="min-w-0 flex-1 truncate px-2 py-1 text-display-xs text-ink">{LOCKED_TITLE}</h1>
+        <ArchiveControls archived={note.archivedAt !== null} onToggleArchive={onToggleArchive} />
         <IconButton
           label="Move to Trash"
           icon={Trash2}

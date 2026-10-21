@@ -29,8 +29,8 @@ const db = vi.hoisted(() => ({ name: 'test-db' }));
 vi.mock('@/lib/firebase', () => ({ db }));
 
 import {
-  createNote, deleteNotesForever, fetchAllNotes, findLegacyNotes, importNotes, migrateNote, migrateNotes, purgeExpiredTrash,
-  restoreNote, saveNote, subscribeNotes, toNote, trashNote,
+  archiveNote, createNote, deleteNotesForever, fetchAllNotes, findLegacyNotes, importNotes, migrateNote, migrateNotes, purgeExpiredTrash,
+  restoreNote, saveNote, subscribeNotes, toNote, trashNote, unarchiveNote,
 } from '@/lib/notes';
 import { SCHEMA_VERSION, needsMigration } from '@/lib/migration';
 import type { Note } from '@/types/note';
@@ -79,7 +79,7 @@ describe('toNote', () => {
   test('AC-2: a document without rev reads as rev 0 and Timestamps become Dates', () => {
     const n = toNote('a', { title: 'T', content: 'C', createdAt: new Timestamp(5), updatedAt: new Timestamp(9) });
     expect(n).toEqual({
-      id: 'a', title: 'T', content: 'C', rev: 0, createdAt: new Date(5), updatedAt: new Date(9), deletedAt: null,
+      id: 'a', title: 'T', content: 'C', rev: 0, createdAt: new Date(5), updatedAt: new Date(9), deletedAt: null, archivedAt: null,
       locked: false, encrypted: null,
     });
   });
@@ -102,6 +102,22 @@ describe('toNote', () => {
     expect(toNote('a', { title: 'T' }).deletedAt).toBeNull();
     expect(toNote('a', { title: 'T', deletedAt: null }).deletedAt).toBeNull();
     expect(toNote('a', { title: 'T', deletedAt: new Timestamp(3) }).deletedAt).toEqual(new Date(3));
+  });
+
+  test('CNOTE-17 AC-1: missing, null or non-Timestamp archivedAt is not archived; a Timestamp becomes a Date', () => {
+    expect(toNote('a', { title: 'T' }).archivedAt).toBeNull();
+    expect(toNote('a', { title: 'T', archivedAt: null }).archivedAt).toBeNull();
+    expect(toNote('a', { title: 'T', archivedAt: 'yesterday' }).archivedAt).toBeNull();
+    expect(toNote('a', { title: 'T', archivedAt: new Timestamp(4) }).archivedAt).toEqual(new Date(4));
+  });
+
+  test('CNOTE-17 AC-1: a schemaVersion 2 note written before archive existed reads as not archived and needs no migration', () => {
+    const data = {
+      title: 'T', content: '<p>x</p>', rev: 1, createdAt: new Timestamp(1), updatedAt: new Timestamp(2), deletedAt: null,
+      encrypted: null, schemaVersion: SCHEMA_VERSION,
+    };
+    expect(toNote('a', data)).toMatchObject({ archivedAt: null, deletedAt: null });
+    expect(needsMigration(data)).toBe(false);
   });
 
   test('CNOTE-19 AC-4: a missing title reads as empty', () => {
@@ -147,7 +163,7 @@ describe('saveNote', () => {
     expect(tx.update).not.toHaveBeenCalled();
     expect(tx.set).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/new-id' }), {
       title: 'Shopping (conflict copy)', content: 'mine', encrypted: null, rev: 0,
-      createdAt: Timestamp.now(), updatedAt: Timestamp.now(), deletedAt: null, schemaVersion: 2,
+      createdAt: Timestamp.now(), updatedAt: Timestamp.now(), deletedAt: null, archivedAt: null, schemaVersion: 2,
     });
     // CNOTE-21 AC-10: a conflict copy is written on the current schema
     expect(needsMigration(tx.set.mock.calls[0][1])).toBe(false);
@@ -169,6 +185,12 @@ describe('saveNote', () => {
     const tx = transactionWith({ title: 'Old', content: 'old', rev: 1, deletedAt: new Timestamp(3) });
     await expect(saveNote({ id: 'a', title: 'New', content: 'new', rev: 1 })).resolves.toEqual({ status: 'saved', rev: 2 });
     expect(tx.update.mock.calls[0][1]).not.toHaveProperty('deletedAt');
+  });
+
+  test('CNOTE-17 AC-3: an archived note saves and stays archived (the update never writes archivedAt)', async () => {
+    const tx = transactionWith({ title: 'Old', content: 'old', rev: 1, archivedAt: new Timestamp(3) });
+    await expect(saveNote({ id: 'a', title: 'New', content: 'new', rev: 1 })).resolves.toEqual({ status: 'saved', rev: 2 });
+    expect(tx.update.mock.calls[0][1]).not.toHaveProperty('archivedAt');
   });
 });
 
@@ -206,7 +228,7 @@ describe('saveNote for locked notes (CNOTE-7)', () => {
     expect(ref).toEqual(expect.objectContaining({ id: 'new-id' }));
     expect(copy).toEqual({
       title: '', content: '', encrypted: expect.any(Object), rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
-      deletedAt: null, schemaVersion: 2,
+      deletedAt: null, archivedAt: null, schemaVersion: 2,
     });
     expect(needsMigration(copy)).toBe(false);
     expect(written(tx)).not.toContain('secret');
@@ -425,14 +447,35 @@ describe('createNote', () => {
     firestore.addDoc.mockResolvedValue({ id: 'b' });
     const n = await createNote();
     expect(firestore.addDoc).toHaveBeenCalledWith({ path: 'notes' }, {
-      title: 'Untitled Note', content: '', rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(), deletedAt: null,
+      title: 'Untitled Note', content: '', rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(), deletedAt: null, archivedAt: null,
       encrypted: null, schemaVersion: 2,
     });
     expect(needsMigration(firestore.addDoc.mock.calls[0][1])).toBe(false);
     expect(n).toEqual({
-      id: 'b', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000), deletedAt: null,
+      id: 'b', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000), deletedAt: null, archivedAt: null,
       locked: false, encrypted: null,
     });
+  });
+});
+
+describe('archive (CNOTE-17)', () => {
+  test('AC-2: archiveNote sets only archivedAt to a server timestamp (no rev or updatedAt bump)', async () => {
+    await archiveNote('a');
+    expect(firestore.updateDoc).toHaveBeenCalledTimes(1);
+    expect(firestore.updateDoc).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/a' }), {
+      archivedAt: 'SERVER_TIMESTAMP',
+    });
+  });
+
+  test('AC-2: unarchiveNote clears archivedAt only', async () => {
+    await unarchiveNote('a');
+    expect(firestore.updateDoc).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/a' }), { archivedAt: null });
+  });
+
+  test('AC-9: trashing and restoring leave archivedAt alone, so a restored archived note goes back to Archive', async () => {
+    await trashNote('a');
+    await restoreNote('a');
+    expect(firestore.updateDoc.mock.calls.map(([, data]) => data)).toEqual([{ deletedAt: 'SERVER_TIMESTAMP' }, { deletedAt: null }]);
   });
 });
 
@@ -449,7 +492,7 @@ function batches() {
 
 const DAY = 24 * 60 * 60 * 1000;
 const trashed = (id: string, deletedAt: Date | null): Note => ({
-  id, title: id, content: '', rev: 0, createdAt: new Date(0), updatedAt: new Date(0), deletedAt, locked: false, encrypted: null,
+  id, title: id, content: '', rev: 0, createdAt: new Date(0), updatedAt: new Date(0), deletedAt, archivedAt: null, locked: false, encrypted: null,
 });
 
 describe('trash', () => {
@@ -525,24 +568,24 @@ describe('fetchAllNotes (CNOTE-19 AC-4)', () => {
 });
 
 describe('importNotes (CNOTE-19 AC-11, AC-14)', () => {
-  const imported = (i: number, deletedAt: Date | null = null) => ({
-    title: `T${i}`, content: `<p>${i}</p>`, createdAt: new Date(10 + i), updatedAt: new Date(20 + i), deletedAt, sealed: null,
+  const imported = (i: number, deletedAt: Date | null = null, archivedAt: Date | null = null) => ({
+    title: `T${i}`, content: `<p>${i}</p>`, createdAt: new Date(10 + i), updatedAt: new Date(20 + i), deletedAt, archivedAt, sealed: null,
   });
 
-  test('writes each note as a new document with rev 0 and the backup timestamps', async () => {
+  test('writes each note as a new document with rev 0 and the backup timestamps (CNOTE-17 AC-11: archivedAt too)', async () => {
     const made = batches();
-    await expect(importNotes([imported(1), imported(2, new Date(99))])).resolves.toBe(2);
+    await expect(importNotes([imported(1), imported(2, new Date(99), new Date(77))])).resolves.toBe(2);
 
     expect(made).toHaveLength(1);
     expect(made[0].delete).not.toHaveBeenCalled();
     expect(made[0].set.mock.calls).toEqual([
       [{ path: 'notes/new-id', id: 'new-id' }, {
         title: 'T1', content: '<p>1</p>', encrypted: null, rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21),
-        deletedAt: null, schemaVersion: 2,
+        deletedAt: null, archivedAt: null, schemaVersion: 2,
       }],
       [{ path: 'notes/new-id', id: 'new-id' }, {
         title: 'T2', content: '<p>2</p>', encrypted: null, rev: 0, createdAt: new Timestamp(12), updatedAt: new Timestamp(22),
-        deletedAt: new Timestamp(99), schemaVersion: 2,
+        deletedAt: new Timestamp(99), archivedAt: new Timestamp(77), schemaVersion: 2,
       }],
     ]);
     // CNOTE-21 AC-10: imported notes are written on the current schema
@@ -576,7 +619,7 @@ describe('importNotes (CNOTE-19 AC-11, AC-14)', () => {
     await importNotes([{ ...imported(1), title: '', content: '', sealed: { noteId: 'Abc123', payload } }]);
     expect(made[0].set.mock.calls).toEqual([
       [{ path: 'notes/Abc123', id: 'Abc123' }, {
-        title: '', content: '', encrypted: payload, rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21), deletedAt: null,
+        title: '', content: '', encrypted: payload, rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21), deletedAt: null, archivedAt: null,
         schemaVersion: 2,
       }],
     ]);

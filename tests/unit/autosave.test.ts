@@ -5,7 +5,7 @@ import type { Note } from '@/types/note';
 
 const draft = (id: string, content: string, rev = 0): NoteDraft => ({ id, title: `T ${id}`, content, rev });
 const note = (id: string, rev: number, content = ''): Note => ({
-  id, title: `T ${id}`, content, rev, createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null, locked: false, encrypted: null,
+  id, title: `T ${id}`, content, rev, createdAt: new Date(0), updatedAt: new Date(0), deletedAt: null, archivedAt: null, locked: false, encrypted: null,
 });
 
 // A save whose resolution the test controls

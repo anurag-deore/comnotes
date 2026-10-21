@@ -11,6 +11,9 @@ export interface Note {
   updatedAt: Date;
   // Set while the note is in Trash
   deletedAt: Date | null;
+  // Set while the note is archived (CNOTE-17): out of the main list and search, still editable.
+  // Kept when the note is trashed, so restoring it puts it back in Archive.
+  archivedAt: Date | null;
   // Locked notes are encrypted in the browser (CNOTE-7). locked without encrypted means the stored
   // payload isn't one this version can read: the note stays locked and can't be opened.
   locked: boolean;
