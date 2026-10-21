@@ -92,7 +92,7 @@ export function Sidebar({
           aria-current={homeActive ? 'page' : undefined}
           className="-ml-2 min-w-0 rounded-lg px-2"
         >
-          <Logo className="h-6 w-auto shrink-0 text-ink" />
+          <Logo className="h-10 w-auto shrink-0 text-ink" />
         </Button>
         <span className="flex items-center gap-1">
           <SidebarMenu
