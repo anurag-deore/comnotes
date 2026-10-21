@@ -16,8 +16,9 @@ const firestore = vi.hoisted(() => {
     orderBy: vi.fn((field: string, dir: string) => ({ orderBy: field, dir })),
     onSnapshot: vi.fn(),
     getDocs: vi.fn(),
-    addDoc: vi.fn(),
+    setDoc: vi.fn(),
     updateDoc: vi.fn(),
+    waitForPendingWrites: vi.fn(async () => {}),
     writeBatch: vi.fn(),
     runTransaction: vi.fn(),
     serverTimestamp: vi.fn(() => 'SERVER_TIMESTAMP'),
@@ -137,6 +138,18 @@ describe('toNote', () => {
 });
 
 describe('saveNote', () => {
+  test('CNOTE-20 AC-6: waits for queued writes (e.g. a note created offline) before reading in the transaction', async () => {
+    let done!: () => void;
+    firestore.waitForPendingWrites.mockReturnValueOnce(new Promise<void>((resolve) => { done = resolve; }));
+    transactionWith({ title: 'Old', content: 'old', rev: 0 });
+    const saving = saveNote({ id: 'a', title: 'New', content: 'new', rev: 0 });
+    await Promise.resolve();
+    expect(firestore.waitForPendingWrites).toHaveBeenCalledWith(db);
+    expect(firestore.runTransaction).not.toHaveBeenCalled();
+    done();
+    await expect(saving).resolves.toEqual({ status: 'saved', rev: 1 });
+  });
+
   test('AC-4: matching rev writes title, content, rev + 1 and a server timestamp', async () => {
     const tx = transactionWith({ title: 'Old', content: 'old', rev: 2 });
     const result = await saveNote({ id: 'a', title: 'New', content: 'new', rev: 2 });
@@ -282,9 +295,20 @@ describe('subscribeNotes', () => {
     expect(error).toBe(onError);
 
     const data = vi.fn(() => ({ title: 'T', content: 'C', rev: 1 }));
-    next({ docs: [{ id: 'a', data }] });
+    next({ docs: [{ id: 'a', data }], metadata: { fromCache: false } });
     expect(data).toHaveBeenCalledWith({ serverTimestamps: 'estimate' });
-    expect(onNotes).toHaveBeenCalledWith([expect.objectContaining({ id: 'a', title: 'T', rev: 1 })]);
+    expect(onNotes).toHaveBeenCalledWith([expect.objectContaining({ id: 'a', title: 'T', rev: 1 })], false);
+  });
+
+  test('CNOTE-20 AC-8: says whether the snapshot came from the local cache', () => {
+    firestore.onSnapshot.mockReturnValue(vi.fn());
+    const onNotes = vi.fn();
+    subscribeNotes(onNotes, vi.fn());
+    const next = firestore.onSnapshot.mock.calls[0][1];
+    next({ docs: [], metadata: { fromCache: true } });
+    expect(onNotes).toHaveBeenLastCalledWith([], true);
+    next({ docs: [], metadata: { fromCache: false } });
+    expect(onNotes).toHaveBeenLastCalledWith([], false);
   });
 
   test('CNOTE-21 AC-1: newest first by updatedAt, and a legacy note without updatedAt is listed', () => {
@@ -302,6 +326,7 @@ describe('subscribeNotes', () => {
         docOf('undated', {}),
         docOf('b-tie', { updatedAt: new Timestamp(9) }),
       ],
+      metadata: { fromCache: false },
     });
     const notes: Note[] = onNotes.mock.calls[0][0];
     expect(notes.map((n) => [n.id, n.updatedAt.getTime()])).toEqual([
@@ -444,17 +469,32 @@ describe('migrateNotes (CNOTE-21 AC-4, AC-8)', () => {
 
 describe('createNote', () => {
   test('AC-2 / CNOTE-21 AC-10: new notes start at rev 0, on the current schema', async () => {
-    firestore.addDoc.mockResolvedValue({ id: 'b' });
-    const n = await createNote();
-    expect(firestore.addDoc).toHaveBeenCalledWith({ path: 'notes' }, {
+    firestore.setDoc.mockResolvedValue(undefined);
+    const n = await createNote(true);
+    expect(firestore.setDoc).toHaveBeenCalledWith({ path: 'notes/new-id', id: 'new-id' }, {
       title: 'Untitled Note', content: '', rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(), deletedAt: null, archivedAt: null,
       encrypted: null, schemaVersion: 2,
     });
-    expect(needsMigration(firestore.addDoc.mock.calls[0][1])).toBe(false);
+    expect(needsMigration(firestore.setDoc.mock.calls[0][1])).toBe(false);
     expect(n).toEqual({
-      id: 'b', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000), deletedAt: null, archivedAt: null,
+      id: 'new-id', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000), deletedAt: null, archivedAt: null,
       locked: false, encrypted: null,
     });
+  });
+
+  test('CNOTE-20 AC-7: online, a write the server rejects still fails the call', async () => {
+    firestore.setDoc.mockRejectedValue(new Error('permission-denied'));
+    await expect(createNote(true)).rejects.toThrow('permission-denied');
+  });
+
+  test('CNOTE-20 AC-7: offline, the note is returned at once and a later failure is logged', async () => {
+    let fail!: (error: Error) => void;
+    firestore.setDoc.mockReturnValue(new Promise((_resolve, reject) => { fail = reject; }));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(createNote(false)).resolves.toMatchObject({ id: 'new-id', title: 'Untitled Note', rev: 0 });
+    fail(new Error('permission-denied'));
+    await vi.waitFor(() => expect(error).toHaveBeenCalled());
+    error.mockRestore();
   });
 });
 

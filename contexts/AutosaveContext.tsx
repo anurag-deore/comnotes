@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { createAutosaver, type Autosaver, type SaveStatus } from '@/lib/autosave';
 import { saveNote, type NoteDraft, type SaveResult } from '@/lib/notes';
 import { noteVault } from '@/lib/vault';
+import { isOnline, subscribeOnline } from '@/lib/onlineStatus';
 
 export type Conflict = Extract<SaveResult, { status: 'conflict' }>;
 
@@ -30,7 +31,11 @@ export function AutosaveProvider({ children }: { children: ReactNode }) {
     onStatus: setStatus,
     onConflict: (conflict) => conflicts.forEach((listener) => listener(conflict)),
     onGone: (draft) => gone.forEach((listener) => listener(draft)),
+    // Offline, drafts wait here and are saved, rev-checked, when the connection is back (CNOTE-20)
+    isOnline: () => isOnline(),
   }));
+
+  useEffect(() => subscribeOnline(window, () => saver.connectionChanged()), [saver]);
 
   useEffect(() => {
     // The browser can't wait for the save, so ask the user to stay while it finishes

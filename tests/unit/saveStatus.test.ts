@@ -16,4 +16,7 @@ describe('saveStatusView (AC-7)', () => {
     expect(saveStatusView('error', true)).toEqual({ label: 'Save failed – retrying', tone: 'negative' });
     expect(saveStatusView('error', false)).toEqual({ label: 'Offline – not saved', tone: 'negative' });
   });
+  test('CNOTE-20 AC-4: waiting for the connection is calm, not an error', () => {
+    expect(saveStatusView('offline', false)).toEqual({ label: 'Offline – saves when back online', tone: 'offline' });
+  });
 });

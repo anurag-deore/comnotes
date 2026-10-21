@@ -280,3 +280,99 @@ describe('draft', () => {
     expect(saver.draft('a')).toEqual(draft('a', 'x'));
   });
 });
+
+describe('offline (CNOTE-20)', () => {
+  let online: boolean;
+  const offlineSetup = () => createAutosaver({
+    save, delayMs: 1000, retryMs: 5000, onStatus: (s) => statuses.push(s), onConflict, onGone, isOnline: () => online,
+  });
+
+  beforeEach(() => {
+    online = false;
+  });
+
+  test('AC-4: offline edits are kept with status offline, without saving or retrying', async () => {
+    const saver = offlineSetup();
+    saver.change(draft('a', 'x'));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(save).not.toHaveBeenCalled();
+    expect(statuses.at(-1)).toBe('offline');
+    expect(saver.draft('a')).toEqual(draft('a', 'x'));
+  });
+
+  test('AC-4: flush resolves false at once while offline with unsaved edits, true when nothing is unsaved', async () => {
+    const saver = offlineSetup();
+    await expect(saver.flush()).resolves.toBe(true);
+    saver.change(draft('a', 'x'));
+    await expect(saver.flush()).resolves.toBe(false);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  test('AC-4: a save that fails because the connection dropped waits for reconnect, not the retry timer', async () => {
+    online = true;
+    const first = deferred<SaveResult>();
+    save.mockImplementationOnce(() => first.promise);
+    const saver = offlineSetup();
+    saver.change(draft('a', 'x'));
+    await vi.advanceTimersByTimeAsync(1000);
+    online = false;
+    first.reject(new Error('unavailable'));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(statuses.at(-1)).toBe('offline');
+  });
+
+  test('AC-5: reconnecting saves every waiting draft with the rev it was based on', async () => {
+    const saver = offlineSetup();
+    saver.change(draft('a', 'x', 3));
+    saver.change(draft('b', 'y', 1));
+    await vi.advanceTimersByTimeAsync(1000);
+    online = true;
+    saver.connectionChanged();
+    await vi.runAllTimersAsync();
+    expect(save.mock.calls.map(([d]) => d)).toEqual([draft('a', 'x', 3), draft('b', 'y', 1)]);
+    expect(statuses.at(-1)).toBe('saved');
+    expect(saver.hasPending()).toBe(false);
+  });
+
+  test('AC-5: an edit made elsewhere while offline becomes a conflict copy on reconnect', async () => {
+    const conflict = { status: 'conflict' as const, server: note('a', 4, 'theirs'), copy: note('c', 0, 'mine') };
+    save.mockResolvedValueOnce(conflict);
+    const saver = offlineSetup();
+    saver.change(draft('a', 'mine', 3));
+    online = true;
+    saver.connectionChanged();
+    await vi.runAllTimersAsync();
+    expect(save).toHaveBeenCalledWith(draft('a', 'mine', 3));
+    expect(onConflict).toHaveBeenCalledWith(conflict);
+  });
+
+  test('AC-5: a note deleted for good while offline drops its draft on reconnect', async () => {
+    save.mockResolvedValueOnce({ status: 'gone' });
+    const saver = offlineSetup();
+    saver.change(draft('a', 'x'));
+    online = true;
+    saver.connectionChanged();
+    await vi.runAllTimersAsync();
+    expect(onGone).toHaveBeenCalledWith(draft('a', 'x'));
+    expect(saver.hasPending()).toBe(false);
+  });
+
+  test('AC-4: going offline re-reports pending edits as offline; reconnecting without edits saves nothing', async () => {
+    online = true;
+    const saver = offlineSetup();
+    saver.change(draft('a', 'x'));
+    expect(statuses.at(-1)).toBe('pending');
+    online = false;
+    saver.connectionChanged();
+    expect(statuses.at(-1)).toBe('offline');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(save).not.toHaveBeenCalled();
+
+    const idle = offlineSetup();
+    online = true;
+    idle.connectionChanged();
+    await vi.runAllTimersAsync();
+    expect(save).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- ComNotes app icon (CNOTE-20). Source for the PNGs in this folder; tokens: ink #0e0f0c, lime #9fe870, sage #e8ebe6.
+       Full-bleed square: platforms round it themselves. The sheet stays inside the maskable safe zone (r 204.8). -->
+  <rect width="512" height="512" fill="#0e0f0c"/>
+  <path d="M164 108h132l76 76v192a28 28 0 0 1-28 28H164a28 28 0 0 1-28-28V136a28 28 0 0 1 28-28z" fill="#9fe870"/>
+  <path d="M296 108v52a24 24 0 0 0 24 24h52z" fill="#e8ebe6"/>
+  <rect x="180" y="232" width="152" height="20" rx="10" fill="#0e0f0c"/>
+  <rect x="180" y="280" width="152" height="20" rx="10" fill="#0e0f0c"/>
+  <rect x="180" y="328" width="96" height="20" rx="10" fill="#0e0f0c"/>
+</svg>

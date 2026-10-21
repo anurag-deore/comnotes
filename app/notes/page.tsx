@@ -135,8 +135,9 @@ export default function NotesPage() {
   // app/notes/layout.tsx only renders this page while unlocked
   useEffect(() => {
     let isFirstSnapshot = true;
+    let purged = false;
     return subscribeNotes(
-      (serverNotes) => {
+      (serverNotes, fromCache) => {
         // A note with unsaved edits shows them until its save lands, even after a lock and unlock.
         // Drafts carry no deletedAt, so the server decides whether the note is in Trash.
         // The first load isn't animated: the skeleton is showing
@@ -146,6 +147,10 @@ export default function NotesPage() {
           // Select the first note by default, only on initial load
           setSelectedNoteId(visibleNotes(serverNotes)[0]?.id ?? null);
           setIsLoading(false);
+        }
+        // Cached data may be stale (a note restored elsewhere), so only the server's list is purged (CNOTE-20)
+        if (!purged && !fromCache) {
+          purged = true;
           purgeExpiredTrash(serverNotes).catch(error => console.error('Error purging trash:', error));
         }
       },

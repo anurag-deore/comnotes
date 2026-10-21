@@ -1,30 +1,22 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
-import { AlertCircle, Check, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, CloudOff, Loader2 } from 'lucide-react';
 import type { SaveStatus as Status } from '@/lib/autosave';
 import { saveStatusView } from '@/lib/saveStatus';
 import { cn } from '@/lib/cn';
-
-const subscribeOnline = (onChange: () => void) => {
-  window.addEventListener('online', onChange);
-  window.addEventListener('offline', onChange);
-  return () => {
-    window.removeEventListener('online', onChange);
-    window.removeEventListener('offline', onChange);
-  };
-};
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 
 const TONES = {
   idle: { className: '', icon: null },
   busy: { className: 'text-body', icon: Loader2 },
   positive: { className: 'text-positive-deep', icon: Check },
   negative: { className: 'text-negative-deep', icon: AlertCircle },
+  offline: { className: 'text-body', icon: CloudOff },
 };
 
 // Inline autosave state, announced politely; saving never raises a toast
 export function SaveStatus({ status }: { status: Status }) {
-  const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
+  const online = useOnlineStatus();
   const { label, tone } = saveStatusView(status, online);
   const { className, icon: Icon } = TONES[tone];
 
@@ -43,7 +35,7 @@ export function SaveStatus({ status }: { status: Status }) {
           />
         )}
         {/* Short label on phones, where the header is tight */}
-        <span className={cn(tone === 'negative' && 'max-sm:sr-only')}>{label}</span>
+        <span className={cn((tone === 'negative' || tone === 'offline') && 'max-sm:sr-only')}>{label}</span>
       </span>
     </span>
   );

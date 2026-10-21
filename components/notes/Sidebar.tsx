@@ -11,6 +11,7 @@ import { ArchiveView } from '@/components/notes/ArchiveView';
 import type { NoteView } from '@/lib/noteViews';
 import { ThemeSwitcher } from '@/components/ui/ThemeSwitcher';
 import { BackupDialog } from '@/components/notes/BackupDialog';
+import { OfflineSetting } from '@/components/notes/OfflineSetting';
 
 export interface SidebarProps {
   notes: Note[];
@@ -107,6 +108,8 @@ export function Sidebar({
       )}
 
       <ThemeSwitcher />
+
+      <OfflineSetting />
 
       <BackupDialog />
 

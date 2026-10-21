@@ -2,7 +2,8 @@
 
 import { useId, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
-import { unlock } from '@/lib/auth';
+import { OFFLINE_UNLOCK_MESSAGE, unlock } from '@/lib/auth';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { cssDurationMs, prefersReducedMotion } from '@/lib/motion';
@@ -31,6 +32,7 @@ export default function PinLock() {
   const [error, setError] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
   const { lockedForInactivity } = useAuth();
+  const online = useOnlineStatus();
   const inputId = useId();
   const errorId = useId();
   const hintId = useId();
@@ -73,6 +75,12 @@ export default function PinLock() {
         {lockedForInactivity && (
           <p id={hintId} className="mt-1 text-body-sm text-body">
             Locked after inactivity.
+          </p>
+        )}
+        {/* The PIN is checked on Firebase's servers, so unlocking needs the network (CNOTE-20) */}
+        {!online && error !== OFFLINE_UNLOCK_MESSAGE && (
+          <p role="status" className="mt-1 text-body-sm text-body">
+            {OFFLINE_UNLOCK_MESSAGE}
           </p>
         )}
         <form className="mt-6" onSubmit={handleSubmit} noValidate>

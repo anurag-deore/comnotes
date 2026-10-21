@@ -1,6 +1,7 @@
 import type { NoteDraft, SaveResult } from '@/lib/notes';
 
-export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
+// 'offline': unsaved edits are waiting for the connection (CNOTE-20)
+export type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error' | 'offline';
 
 interface AutosaverOptions {
   save: (draft: NoteDraft) => Promise<SaveResult>;
@@ -10,10 +11,14 @@ interface AutosaverOptions {
   onConflict: (result: Extract<SaveResult, { status: 'conflict' }>) => void;
   // The note was deleted for good; its unsaved draft has been dropped
   onGone: (draft: NoteDraft) => void;
+  // Saves need the server (a rev-checked transaction), so none are tried while this is false (CNOTE-20)
+  isOnline?: () => boolean;
 }
 
 // Debounced per-note saving, kept free of React and Firebase so it can be unit tested
-export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict, onGone }: AutosaverOptions) {
+export function createAutosaver({
+  save, delayMs, retryMs, onStatus, onConflict, onGone, isOnline = () => true,
+}: AutosaverOptions) {
   const pending = new Map<string, NoteDraft>();
   const inFlight = new Map<string, Promise<void>>();
   // The draft each in-flight save is writing, so draft() can still return it
@@ -25,7 +30,11 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict, 
   let status: SaveStatus = 'idle';
 
   const report = () => {
-    const next = failed ? 'error' : inFlight.size ? 'saving' : pending.size ? 'pending' : 'saved';
+    let next: SaveStatus = 'saved';
+    if (inFlight.size) next = 'saving';
+    else if (pending.size && !isOnline()) next = 'offline';
+    else if (failed) next = 'error';
+    else if (pending.size) next = 'pending';
     if (next !== status) onStatus((status = next));
   };
 
@@ -65,7 +74,8 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict, 
     } catch {
       failed = true;
       if (!pending.has(id)) pending.set(id, draft);
-      schedule(retryMs);
+      // Offline, the reconnect flushes instead of a timer that can only fail
+      if (isOnline()) schedule(retryMs);
     }
   }
 
@@ -82,6 +92,11 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict, 
   // Saves everything now; resolves true when nothing is left unsaved
   async function flush() {
     clearTimeout(timer);
+    // Offline nothing can be saved: keep the drafts and say so at once, so a lock doesn't wait
+    if (!isOnline()) {
+      report();
+      return !pending.size && !inFlight.size;
+    }
     failed = false;
     while (true) {
       for (const id of [...pending.keys()]) {
@@ -107,6 +122,12 @@ export function createAutosaver({ save, delayMs, retryMs, onStatus, onConflict, 
     // Latest unsaved text of a note, so a remounted page shows it instead of the server copy
     draft: (id: string) => pending.get(id) ?? sending.get(id),
     hasPending: () => pending.size > 0 || inFlight.size > 0,
+    // Call on online/offline events: back online, every waiting draft is saved with the rev it was
+    // based on, so an edit made elsewhere meanwhile still ends up as a conflict copy (CNOTE-20)
+    connectionChanged() {
+      report();
+      if (isOnline() && pending.size) void flush();
+    },
     dispose: () => clearTimeout(timer),
   };
 }

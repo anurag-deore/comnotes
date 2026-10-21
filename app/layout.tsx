@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Open_Sans } from "next/font/google";
 import "./globals.css";
 import { AppToaster } from '@/components/ui/AppToaster';
@@ -6,6 +6,9 @@ import { ThemeSync } from '@/components/ui/ThemeSync';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { AutosaveProvider } from '@/contexts/AutosaveContext';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
+import { APP_COLORS } from '@/lib/pwa';
+import { OfflineIndicator } from '@/components/OfflineIndicator';
+import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
 
 // UI face
 const inter = Inter({ subsets: ["latin"], weight: ["400", "600", "900"], variable: "--font-inter", display: "swap" });
@@ -21,6 +24,17 @@ const openSans = Open_Sans({
 export const metadata: Metadata = {
   title: "ComNotes",
   description: "A secure note-taking application",
+  // Installable app (CNOTE-20); the manifest comes from app/manifest.ts
+  appleWebApp: { capable: true, title: "ComNotes", statusBarStyle: "default" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
+};
+
+// Browser chrome follows the light or dark page background (CNOTE-20)
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: APP_COLORS.light },
+    { media: "(prefers-color-scheme: dark)", color: APP_COLORS.dark },
+  ],
 };
 
 export default function RootLayout({
@@ -38,9 +52,11 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased">
         <ThemeSync />
+        <ServiceWorkerRegistration />
         <AutosaveProvider>
           <AuthProvider>
             {children}
+            <OfflineIndicator />
             <AppToaster />
           </AuthProvider>
         </AutosaveProvider>

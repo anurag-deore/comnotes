@@ -12,7 +12,7 @@ vi.mock('firebase/auth', () => firebaseAuth);
 const auth = vi.hoisted(() => ({ name: 'test-auth' }));
 vi.mock('@/lib/firebase', () => ({ getFirebaseAuth: () => auth }));
 
-import { lock, unlock } from '@/lib/auth';
+import { OFFLINE_UNLOCK_MESSAGE, lock, unlock } from '@/lib/auth';
 import { noteVault } from '@/lib/vault';
 import { bytesToBase64 } from '@/lib/noteCrypto';
 
@@ -54,8 +54,14 @@ describe('unlock', () => {
   });
 
   test('AC-2: any other failure is reported as a connection problem', async () => {
-    firebaseAuth.signInWithEmailAndPassword.mockRejectedValue(new FirebaseError('auth/network-request-failed', 'x'));
+    firebaseAuth.signInWithEmailAndPassword.mockRejectedValue(new FirebaseError('auth/internal-error', 'x'));
     await expect(unlock('000000')).rejects.toThrow('Could not unlock. Check your connection.');
+  });
+
+  test('CNOTE-20 AC-11: no network says unlocking needs a connection', async () => {
+    firebaseAuth.signInWithEmailAndPassword.mockRejectedValue(new FirebaseError('auth/network-request-failed', 'x'));
+    await expect(unlock('000000')).rejects.toThrow(OFFLINE_UNLOCK_MESSAGE);
+    expect(OFFLINE_UNLOCK_MESSAGE).toBe("You're offline. Unlocking needs an internet connection.");
   });
 });
 

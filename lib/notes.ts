@@ -1,9 +1,10 @@
 // The only place that talks to Firestore about notes (ADR 0001)
 import {
-  addDoc, collection, doc, DocumentData, getDocs, onSnapshot, runTransaction, serverTimestamp, Timestamp,
-  updateDoc, writeBatch,
+  collection, doc, DocumentData, getDocs, onSnapshot, runTransaction, serverTimestamp, setDoc, Timestamp,
+  updateDoc, waitForPendingWrites, writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { isOnline } from '@/lib/onlineStatus';
 import { chunkBatches, utf8Length, type ImportedNote } from '@/lib/backup';
 import { SCHEMA_VERSION, migrateNoteData, needsMigration, noteDates } from '@/lib/migration';
 import { isEncryptedPayload, type EncryptedPayload, type NoteText } from '@/lib/noteCrypto';
@@ -69,10 +70,14 @@ const compareNotes = (a: Note, b: Note) => b.updatedAt.getTime() - a.updatedAt.g
 
 // Live list, newest first; returns the unsubscribe function. The whole collection, sorted here:
 // a query ordered by updatedAt would leave out older documents that don't have it (CNOTE-21).
-export function subscribeNotes(onNotes: (notes: Note[]) => void, onError: (error: Error) => void) {
+// fromCache: the list came from this device's cache and may be out of date (CNOTE-20).
+export function subscribeNotes(onNotes: (notes: Note[], fromCache: boolean) => void, onError: (error: Error) => void) {
   return onSnapshot(
     notesRef(),
-    (snapshot) => onNotes(snapshot.docs.map((d) => toNote(d.id, d.data({ serverTimestamps: 'estimate' }))).sort(compareNotes)),
+    (snapshot) => onNotes(
+      snapshot.docs.map((d) => toNote(d.id, d.data({ serverTimestamps: 'estimate' }))).sort(compareNotes),
+      snapshot.metadata.fromCache,
+    ),
     onError,
   );
 }
@@ -192,9 +197,14 @@ export async function importNotes(notes: ImportedNote[], onProgress?: (written: 
   return written;
 }
 
-export async function createNote(): Promise<Note> {
+// Online this waits for the server, so a rejected write fails the call. Offline the note is in the
+// local cache at once and Firestore sends it when the connection is back (CNOTE-20).
+export async function createNote(online = isOnline()): Promise<Note> {
   const data = { ...plainFields('Untitled Note', ''), ...newNoteFields, createdAt: Timestamp.now(), updatedAt: Timestamp.now() };
-  const ref = await addDoc(notesRef(), data);
+  const ref = doc(notesRef());
+  const written = setDoc(ref, data);
+  if (online) await written;
+  else written.catch((error) => console.error('Error creating note:', error));
   return toNote(ref.id, data);
 }
 
@@ -205,8 +215,11 @@ export async function createNote(): Promise<Note> {
 // A plain draft clears `encrypted`, which is how Remove lock is saved. The update doesn't stamp
 // schemaVersion: it doesn't fill in an older note's other fields, so that note stays visible to the
 // migration (CNOTE-21); a current note stays current.
-export function saveNote(draft: NoteDraft, keys?: NoteKeys): Promise<SaveResult> {
+// The transaction reads the server, so writes still queued here go first: a note created offline
+// must exist there before its first save, or it would look deleted (CNOTE-20).
+export async function saveNote(draft: NoteDraft, keys?: NoteKeys): Promise<SaveResult> {
   const { sealed } = draft;
+  await waitForPendingWrites(db);
   return runTransaction(db, async (tx): Promise<SaveResult> => {
     const ref = doc(db, 'notes', draft.id);
     const snapshot = await tx.get(ref);

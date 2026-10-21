@@ -5,10 +5,14 @@ import { noteVault } from '@/lib/vault';
 
 const INVALID_PIN_CODES = ['auth/invalid-credential', 'auth/wrong-password', 'auth/missing-password'];
 
+// Firebase checks the PIN on its servers, so there is no unlocking offline (CNOTE-20)
+export const OFFLINE_UNLOCK_MESSAGE = "You're offline. Unlocking needs an internet connection.";
+
 function messageFor(error: unknown) {
   const code = error instanceof FirebaseError ? error.code : '';
   if (INVALID_PIN_CODES.includes(code)) return 'Invalid PIN';
   if (code === 'auth/too-many-requests') return 'Too many attempts. Try again later.';
+  if (code === 'auth/network-request-failed') return OFFLINE_UNLOCK_MESSAGE;
   return 'Could not unlock. Check your connection.';
 }
 
