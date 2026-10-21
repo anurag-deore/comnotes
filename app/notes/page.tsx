@@ -598,7 +598,6 @@ export default function NotesPage() {
     onOpenResult: openSearchResult,
     onHome: goHome,
     homeActive: selectedNote === null,
-    onShowShortcuts: () => setIsHelpOpen(true),
   };
   const toggles = {
     sidebarHidden: isSidebarHidden,

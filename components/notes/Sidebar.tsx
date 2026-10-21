@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowLeft, House, Keyboard, Plus, X } from 'lucide-react';
+import { ArrowLeft, Plus, X } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
 import type { Note } from '@/types/note';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -41,8 +41,6 @@ export interface SidebarProps {
   // Home (CNOTE-23): closes the open note; active while Home shows
   onHome?: () => void;
   homeActive?: boolean;
-  // Keyboard shortcuts help (CNOTE-24); the button shows from 768px up, where keyboards are likely
-  onShowShortcuts?: () => void;
 }
 
 const VIEW_NAMES: Record<NoteView, string> = { notes: 'Notes', archive: 'Archive', trash: 'Trash' };
@@ -58,7 +56,7 @@ function useActiveResult(results: SearchResult[]) {
 // (Archive, Trash, Settings, Lock). Used by the desktop sidebar and the mobile drawer.
 export function Sidebar({
   notes, archivedNotes, trashedNotes, selectedId, now, view, onShowView, onSelect, onCreate, onUnarchive, onRestore,
-  onDeleteForever, onLock, onOpenSettings, unlockedTitles, search, onOpenResult, headerAction, onHome, homeActive, onShowShortcuts,
+  onDeleteForever, onLock, onOpenSettings, unlockedTitles, search, onOpenResult, headerAction, onHome, homeActive,
 }: SidebarProps) {
   const inputId = useId();
   const listboxId = useId();
@@ -85,8 +83,18 @@ export function Sidebar({
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-3">
       <div className="flex items-center justify-between gap-2 px-2 pt-1">
-        <span className="flex min-w-0 items-center gap-1">
+        {/* The logo is the Home button (CNOTE-23) */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onHome}
+          aria-label="Home"
+          aria-current={homeActive ? 'page' : undefined}
+          className="-ml-2 min-w-0 rounded-lg px-2"
+        >
           <Logo className="h-6 w-auto shrink-0 text-ink" />
+        </Button>
+        <span className="flex items-center gap-1">
           <SidebarMenu
             archivedCount={archivedNotes.length}
             trashedCount={trashedNotes.length}
@@ -94,20 +102,6 @@ export function Sidebar({
             onOpenSettings={onOpenSettings}
             onLock={onLock}
           />
-        </span>
-        <span className="flex items-center gap-1">
-          {onShowShortcuts && (
-            <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={onShowShortcuts} className="max-md:hidden" />
-          )}
-          {onHome && (
-            <IconButton
-              label="Home"
-              icon={House}
-              onClick={onHome}
-              aria-current={homeActive ? 'page' : undefined}
-              className={homeActive ? 'bg-primary-pale' : undefined}
-            />
-          )}
           {headerAction}
         </span>
       </div>
