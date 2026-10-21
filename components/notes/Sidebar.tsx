@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Archive, ArrowLeft, House, Keyboard, Lock, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, House, Keyboard, Plus, X } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
 import type { Note } from '@/types/note';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -10,7 +10,7 @@ import { NoteListItem } from '@/components/notes/NoteListItem';
 import { TrashView } from '@/components/notes/TrashView';
 import { ArchiveView } from '@/components/notes/ArchiveView';
 import type { NoteView } from '@/lib/noteViews';
-import { SettingsDialog } from '@/components/notes/SettingsDialog';
+import { SidebarMenu } from '@/components/notes/SidebarMenu';
 import { SearchField, SearchResults, optionId, searchSummary } from '@/components/notes/NoteSearch';
 import type { NoteSearch, SearchResult } from '@/hooks/useNoteSearch';
 import { searchKeyAction } from '@/lib/searchKeys';
@@ -29,6 +29,8 @@ export interface SidebarProps {
   onRestore: (id: string) => void;
   onDeleteForever: (ids: string[]) => void;
   onLock: () => void;
+  // The menu beside the logo opens Settings (the dialog lives on the notes page)
+  onOpenSettings: () => void;
   // Decrypted titles of locked notes, in memory only (CNOTE-7)
   unlockedTitles: Record<string, string>;
   // Search (CNOTE-18): shared by the desktop sidebar and the drawer
@@ -52,11 +54,11 @@ function useActiveResult(results: SearchResult[]) {
   return [index, (next: number) => setActive({ results, index: next })] as const;
 }
 
-// Notes list (or Archive, or Trash), the New note call to action, Settings and Lock. Used by the
-// desktop sidebar and the mobile drawer.
+// Notes list (or Archive, or Trash), the New note call to action, and the menu beside the logo
+// (Archive, Trash, Settings, Lock). Used by the desktop sidebar and the mobile drawer.
 export function Sidebar({
   notes, archivedNotes, trashedNotes, selectedId, now, view, onShowView, onSelect, onCreate, onUnarchive, onRestore,
-  onDeleteForever, onLock, unlockedTitles, search, onOpenResult, headerAction, onHome, homeActive, onShowShortcuts,
+  onDeleteForever, onLock, onOpenSettings, unlockedTitles, search, onOpenResult, headerAction, onHome, homeActive, onShowShortcuts,
 }: SidebarProps) {
   const inputId = useId();
   const listboxId = useId();
@@ -83,7 +85,16 @@ export function Sidebar({
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-3">
       <div className="flex items-center justify-between gap-2 px-2 pt-1">
-        <Logo className="h-6 w-auto text-ink" />
+        <span className="flex min-w-0 items-center gap-1">
+          <Logo className="h-6 w-auto shrink-0 text-ink" />
+          <SidebarMenu
+            archivedCount={archivedNotes.length}
+            trashedCount={trashedNotes.length}
+            onShowView={onShowView}
+            onOpenSettings={onOpenSettings}
+            onLock={onLock}
+          />
+        </span>
         <span className="flex items-center gap-1">
           {onShowShortcuts && (
             <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={onShowShortcuts} className="max-md:hidden" />
@@ -171,29 +182,6 @@ export function Sidebar({
           </>
         )}
       </nav>
-
-      {view === 'notes' && !searching && (
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => onShowView('archive')} className="min-w-0 flex-1">
-            <Archive aria-hidden className="size-4 shrink-0" />
-            Archive
-            {archivedNotes.length > 0 && <span className="text-body">({archivedNotes.length})</span>}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => onShowView('trash')} className="min-w-0 flex-1">
-            <Trash2 aria-hidden className="size-4 shrink-0" />
-            Trash
-            {trashedNotes.length > 0 && <span className="text-body">({trashedNotes.length})</span>}
-          </Button>
-        </div>
-      )}
-
-      <div className="flex gap-2">
-        <SettingsDialog triggerClassName="min-w-0 flex-1" />
-        <Button variant="tertiary" size="sm" onClick={onLock} className="min-w-0 flex-1">
-          <Lock aria-hidden className="size-4 shrink-0" />
-          Lock
-        </Button>
-      </div>
     </div>
   );
 }

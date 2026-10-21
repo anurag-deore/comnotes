@@ -34,6 +34,7 @@ import { NotesSkeleton } from '@/components/notes/NotesSkeleton';
 import { MigrationBanner } from '@/components/notes/MigrationBanner';
 import { CommandPalette } from '@/components/notes/CommandPalette';
 import { ShortcutsHelp } from '@/components/notes/ShortcutsHelp';
+import { SettingsDialog } from '@/components/notes/SettingsDialog';
 import { useIsMac } from '@/components/ui/Kbd';
 import { animateListChange } from '@/lib/listMotion';
 import { noteListsChanged, prefersReducedMotion, runViewTransition } from '@/lib/motion';
@@ -101,9 +102,10 @@ export default function NotesPage() {
   const migration = useNoteMigration(!isLoading);
   // Search (CNOTE-18) over the notes and, while the vault is unlocked, the decrypted locked notes
   const search = useNoteSearch(localNotes, plain);
-  // Command palette and shortcuts help (CNOTE-24)
+  // Command palette and shortcuts help (CNOTE-24), and Settings (sidebar menu or palette)
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const mac = useIsMac();
 
   // Every change to the notes goes through here. Adding, removing or re-ordering rows animates
@@ -534,6 +536,7 @@ export default function NotesPage() {
     'toggle-sidebar': toggleNotesList,
     'toggle-theme': toggleTheme,
     shortcuts: () => setIsHelpOpen(true),
+    'open-settings': () => setIsSettingsOpen(true),
     'lock-app': () => void logout(),
   };
 
@@ -575,7 +578,11 @@ export default function NotesPage() {
     selectedId: selectedNoteId,
     now,
     view,
-    onShowView: setView,
+    // From the sidebar menu: the list replaces any search
+    onShowView: (next: NoteView) => {
+      search.clear();
+      setView(next);
+    },
     onSelect: handleNoteSelect,
     onCreate: () => void createNewNote(),
     onUnarchive: (id: string) => {
@@ -585,6 +592,7 @@ export default function NotesPage() {
     onRestore: restore,
     onDeleteForever: deleteForever,
     onLock: () => void logout(),
+    onOpenSettings: () => setIsSettingsOpen(true),
     unlockedTitles,
     search,
     onOpenResult: openSearchResult,
@@ -681,6 +689,12 @@ export default function NotesPage() {
         search={search}
         onRun={id => commandHandlers[id]()}
         onOpenNote={openSearchResult}
+      />
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+        onShowShortcuts={() => setIsHelpOpen(true)}
+        onLock={() => void logout()}
       />
       <ShortcutsHelp open={isHelpOpen} onOpenChange={setIsHelpOpen} mac={mac} />
     </div>

@@ -5,7 +5,7 @@ import { flushSync } from 'react-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   Archive, ArchiveRestore, Command as CommandIcon, FileText, House, Keyboard, Lock, LockOpen, LogOut, PanelLeft, Plus,
-  Search, SunMoon, Trash2, type LucideIcon,
+  Search, Settings2, SunMoon, Trash2, type LucideIcon,
 } from 'lucide-react';
 import type { NoteSearch, SearchResult } from '@/hooks/useNoteSearch';
 import { useReturnFocus } from '@/hooks/useReturnFocus';
@@ -32,6 +32,7 @@ const ICONS: Record<CommandId, (state: CommandState) => LucideIcon> = {
   'toggle-sidebar': () => PanelLeft,
   'toggle-theme': () => SunMoon,
   shortcuts: () => Keyboard,
+  'open-settings': () => Settings2,
   'lock-app': () => LogOut,
 };
 

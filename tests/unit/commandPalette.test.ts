@@ -56,12 +56,14 @@ describe('paletteCommands (AC-5)', () => {
     expect(labels('new')[0]).toBe('New note');
     expect(labels('trash')).toEqual(['Show Trash', 'Move note to Trash']);
     expect(labels('zzz')).toEqual([]);
+    expect(labels('settings')).toEqual(['Open settings']);
   });
 
   test('keywords match too, below a label match', () => {
     expect(labels('delete')).toEqual(['Move note to Trash']);
     expect(labels('dark')).toEqual(['Toggle light/dark theme']);
     expect(labels('logout')).toEqual(['Lock ComNotes']);
+    expect(labels('backup')).toEqual(['Open settings']);
   });
 });
 

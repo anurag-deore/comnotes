@@ -7,7 +7,7 @@
 
 export type CommandId =
   | 'palette' | 'search' | 'new-note' | 'toggle-archive' | 'trash-note' | 'lock-note' | 'go-home'
-  | 'show-archive' | 'show-trash' | 'toggle-sidebar' | 'toggle-theme' | 'shortcuts' | 'lock-app';
+  | 'show-archive' | 'show-trash' | 'toggle-sidebar' | 'toggle-theme' | 'shortcuts' | 'open-settings' | 'lock-app';
 
 export const COMMAND_GROUPS = ['General', 'Notes', 'Go to', 'View'] as const;
 export type CommandGroup = (typeof COMMAND_GROUPS)[number];
@@ -77,6 +77,14 @@ export const COMMANDS: readonly Command[] = [
   { id: 'toggle-sidebar', label: 'Toggle sidebar', group: 'View', keys: ['Mod+\\'], keywords: ['hide', 'show', 'notes list'] },
   { id: 'toggle-theme', label: 'Toggle light/dark theme', group: 'View', keys: ['Mod+Shift+D'], keywords: ['dark mode', 'appearance'] },
   { id: 'shortcuts', label: 'Keyboard shortcuts', group: 'General', keys: ['?', 'Mod+/'], keywords: ['help', 'keys'] },
+  // Palette only: ⌘, belongs to the browser on Mac
+  {
+    id: 'open-settings',
+    label: 'Open settings',
+    group: 'General',
+    keys: [],
+    keywords: ['preferences', 'offline', 'backup', 'export', 'import'],
+  },
   { id: 'lock-app', label: 'Lock ComNotes', group: 'General', keys: ['Mod+Alt+L'], keywords: ['logout', 'sign out', 'pin'] },
 ];
 
@@ -229,7 +237,8 @@ export function isTypingTarget(target: Element | null): boolean {
   return editable !== null && editable.getAttribute('contenteditable') !== 'false';
 }
 
-// Dialogs and popovers (Radix: role="dialog") own the keyboard; the notes drawer is navigation, not a task
+// Dialogs, popovers and menus (Radix: role="dialog", role="menu") own the keyboard; the notes drawer is
+// navigation, not a task
 export function isBlockedTarget(target: Element | null): boolean {
-  return target?.closest('[role="dialog"]:not(#notes-drawer), [role="alertdialog"]') != null;
+  return target?.closest('[role="dialog"]:not(#notes-drawer), [role="alertdialog"], [role="menu"]') != null;
 }

@@ -52,6 +52,7 @@ describe('registry (AC-1, AC-3)', () => {
       'toggle-theme': ['Mod+Shift+D'],
       'lock-app': ['Mod+Alt+L'],
       'lock-note': [],
+      'open-settings': [],
     });
   });
 
@@ -157,9 +158,10 @@ describe('typing and blocked targets (AC-2)', () => {
     expect(isTypingTarget(null)).toBe(false);
   });
 
-  test('modal dialogs and popovers block shortcuts; the notes drawer does not', () => {
+  test('modal dialogs, popovers and menus block shortcuts; the notes drawer does not', () => {
     expect(isBlockedTarget(el('<div role="dialog"><input></div>', 'input'))).toBe(true);
     expect(isBlockedTarget(el('<div role="alertdialog"><button>b</button></div>', 'button'))).toBe(true);
+    expect(isBlockedTarget(el('<div role="menu"><div role="menuitem">a</div></div>', '[role="menuitem"]'))).toBe(true);
     expect(isBlockedTarget(el('<div role="dialog" id="notes-drawer"><input></div>', 'input'))).toBe(false);
     expect(isBlockedTarget(el('<main><input></main>', 'input'))).toBe(false);
     expect(isBlockedTarget(null)).toBe(false);
@@ -198,12 +200,17 @@ describe('key labels (AC-4)', () => {
 describe('availability and labels (AC-3, AC-5)', () => {
   const byId = (id: string) => COMMANDS.find((c) => c.id === id)!;
 
+  test('Open settings is an app-level palette command with no key (⌘, is the browser\'s)', () => {
+    expect(byId('open-settings')).toMatchObject({ label: 'Open settings', group: 'General', keys: [] });
+    expect(byId('open-settings').inPalette).toBeUndefined();
+  });
+
   test('note commands need an open note', () => {
     for (const id of ['toggle-archive', 'trash-note', 'lock-note']) {
       expect(isAvailable(byId(id), NO_NOTE)).toBe(false);
       expect(isAvailable(byId(id), OPEN_NOTE)).toBe(true);
     }
-    for (const id of ['new-note', 'search', 'go-home', 'toggle-sidebar', 'toggle-theme', 'lock-app']) {
+    for (const id of ['new-note', 'search', 'go-home', 'toggle-sidebar', 'toggle-theme', 'open-settings', 'lock-app']) {
       expect(isAvailable(byId(id), NO_NOTE)).toBe(true);
     }
   });
