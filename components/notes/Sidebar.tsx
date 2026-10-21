@@ -10,9 +10,7 @@ import { NoteListItem } from '@/components/notes/NoteListItem';
 import { TrashView } from '@/components/notes/TrashView';
 import { ArchiveView } from '@/components/notes/ArchiveView';
 import type { NoteView } from '@/lib/noteViews';
-import { ThemeSwitcher } from '@/components/ui/ThemeSwitcher';
-import { BackupDialog } from '@/components/notes/BackupDialog';
-import { OfflineSetting } from '@/components/notes/OfflineSetting';
+import { SettingsDialog } from '@/components/notes/SettingsDialog';
 import { SearchField, SearchResults, optionId, searchSummary } from '@/components/notes/NoteSearch';
 import type { NoteSearch, SearchResult } from '@/hooks/useNoteSearch';
 import { searchKeyAction } from '@/lib/searchKeys';
@@ -54,7 +52,7 @@ function useActiveResult(results: SearchResult[]) {
   return [index, (next: number) => setActive({ results, index: next })] as const;
 }
 
-// Notes list (or Archive, or Trash), the New note call to action, theme, Backup and Lock. Used by the
+// Notes list (or Archive, or Trash), the New note call to action, Settings and Lock. Used by the
 // desktop sidebar and the mobile drawer.
 export function Sidebar({
   notes, archivedNotes, trashedNotes, selectedId, now, view, onShowView, onSelect, onCreate, onUnarchive, onRestore,
@@ -189,16 +187,13 @@ export function Sidebar({
         </div>
       )}
 
-      <ThemeSwitcher />
-
-      <OfflineSetting />
-
-      <BackupDialog />
-
-      <Button variant="tertiary" size="sm" onClick={onLock} className="w-full">
-        <Lock aria-hidden className="size-4" />
-        Lock
-      </Button>
+      <div className="flex gap-2">
+        <SettingsDialog triggerClassName="min-w-0 flex-1" />
+        <Button variant="tertiary" size="sm" onClick={onLock} className="min-w-0 flex-1">
+          <Lock aria-hidden className="size-4 shrink-0" />
+          Lock
+        </Button>
+      </div>
     </div>
   );
 }

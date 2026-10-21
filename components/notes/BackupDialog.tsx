@@ -28,7 +28,7 @@ const BUSY_AWARE = 'mt-3 aria-disabled:cursor-not-allowed aria-disabled:opacity-
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 // Backup: export every note as a zip (notes.json + Markdown), or import a backup as new notes (CNOTE-19)
-export function BackupDialog() {
+export function BackupDialog({ triggerClassName }: { triggerClassName?: string }) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -145,7 +145,7 @@ export function BackupDialog() {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Trigger asChild>
-        <Button variant="ghost" size="sm" className="w-full">
+        <Button variant="secondary" size="sm" className={triggerClassName}>
           <DatabaseBackup aria-hidden className="size-4" />
           Backup
         </Button>

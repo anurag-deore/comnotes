@@ -21,7 +21,7 @@ const FAILURES: Record<Exclude<OfflineCacheChange, 'done'>, string> = {
 
 // "Keep notes available offline on this device" (CNOTE-20): a switch, per device. Firestore picks its
 // cache when the page loads, so a change reloads (and so locks) the app.
-export function OfflineSetting() {
+export function OfflineSetting({ className }: { className?: string }) {
   // What Firestore is using now; changes only take effect through the reload below
   const on = offlineCacheEnabled;
   const [busy, setBusy] = useState(false);
@@ -47,7 +47,7 @@ export function OfflineSetting() {
   };
 
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-canvas p-3">
+    <div className={cn('flex items-start gap-3 rounded-xl bg-canvas p-3', className)}>
       <div className="min-w-0 flex-1">
         <span id={labelId} className="block text-body-sm font-semibold text-ink">
           Keep notes available offline on this device
