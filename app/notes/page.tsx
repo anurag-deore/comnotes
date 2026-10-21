@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useMemo, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useCallback, useEffect, useEffectEvent, useRef, useState, useMemo, useSyncExternalStore, type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import {
   archiveNote, createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, subscribeNotes, trashNote, unarchiveNote,
@@ -9,7 +11,12 @@ import { noteView, visibleNotes, type NoteView } from '@/lib/noteViews';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useNoteMigration } from '@/hooks/useNoteMigration';
 import { useNoteSearch } from '@/hooks/useNoteSearch';
-import { onSearchFocusRequest } from '@/lib/searchFocus';
+import { onSearchFocusRequest, requestSearchFocus } from '@/lib/searchFocus';
+import {
+  COMMANDS, isBlockedTarget, isTypingTarget, matchShortcut, toKeyInput, type CommandId, type CommandState,
+} from '@/lib/shortcuts';
+import { oppositeTheme } from '@/lib/theme';
+import { setThemePreference } from '@/lib/themeStore';
 import { Note } from '@/types/note';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,6 +32,9 @@ import { LockedNotePane, type LockedState } from '@/components/notes/LockedNoteP
 import { LockDialog, type LockDialogMode } from '@/components/notes/LockDialog';
 import { NotesSkeleton } from '@/components/notes/NotesSkeleton';
 import { MigrationBanner } from '@/components/notes/MigrationBanner';
+import { CommandPalette } from '@/components/notes/CommandPalette';
+import { ShortcutsHelp } from '@/components/notes/ShortcutsHelp';
+import { useIsMac } from '@/components/ui/Kbd';
 import { animateListChange } from '@/lib/listMotion';
 import { noteListsChanged, prefersReducedMotion, runViewTransition } from '@/lib/motion';
 import { browserStorage, readSidebarHidden, writeSidebarHidden } from '@/lib/sidebarPreference';
@@ -91,6 +101,10 @@ export default function NotesPage() {
   const migration = useNoteMigration(!isLoading);
   // Search (CNOTE-18) over the notes and, while the vault is unlocked, the decrypted locked notes
   const search = useNoteSearch(localNotes, plain);
+  // Command palette and shortcuts help (CNOTE-24)
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const mac = useIsMac();
 
   // Every change to the notes goes through here. Adding, removing or re-ordering rows animates
   // (View Transition, lib/listMotion.ts); edits that keep the order are applied as usual.
@@ -470,6 +484,80 @@ export default function NotesPage() {
     });
   };
 
+  // The notes list on any screen: the sidebar (768px and up) or the drawer
+  const openDrawer = () => {
+    drawerClosedByNavigation.current = false;
+    setIsDrawerOpen(true);
+  };
+  const toggleNotesList = () => {
+    if (window.matchMedia(DESKTOP).matches) toggleSidebar();
+    else if (isDrawerOpen) setIsDrawerOpen(false);
+    else openDrawer();
+  };
+
+  // Show Archive / Show Trash from the palette: the list replaces any search, and becomes visible
+  const showView = (next: NoteView) => {
+    search.clear();
+    setView(next);
+    if (!window.matchMedia(DESKTOP).matches) openDrawer();
+    else if (isSidebarHidden) toggleSidebar();
+  };
+
+  // Light ⇄ dark from whatever shows now (System included); the choice is then explicit
+  const toggleTheme = () => {
+    const shown = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    setThemePreference(oppositeTheme(shown));
+  };
+
+  // What the shortcuts and the palette can do right now (lib/shortcuts.ts `when`). Kept stable while
+  // these flags hold, so the palette's highlighted row doesn't reset when the note is edited.
+  const hasNote = selectedNote !== null;
+  const noteArchived = selectedNote?.archivedAt != null;
+  const noteLocked = selectedNote?.locked === true;
+  const noteReadable = hasNote && (!noteLocked || plain[selectedNote.id] !== undefined);
+  const commandState = useMemo<CommandState>(
+    () => ({ hasNote, noteArchived, noteLocked, noteReadable }),
+    [hasNote, noteArchived, noteLocked, noteReadable],
+  );
+
+  // Every command's handler (the registry in lib/shortcuts.ts has the keys and labels)
+  const commandHandlers: Record<CommandId, () => void> = {
+    palette: () => setIsPaletteOpen(open => !open),
+    search: () => requestSearchFocus(),
+    'new-note': () => void createNewNote(),
+    'toggle-archive': toggleArchiveSelected,
+    'trash-note': deleteSelectedNote,
+    'lock-note': toggleLock,
+    'go-home': goHome,
+    'show-archive': () => showView('archive'),
+    'show-trash': () => showView('trash'),
+    'toggle-sidebar': toggleNotesList,
+    'toggle-theme': toggleTheme,
+    shortcuts: () => setIsHelpOpen(true),
+    'lock-app': () => void logout(),
+  };
+
+  // Global shortcuts (CNOTE-24). The matcher leaves keys alone while typing (single keys), during IME
+  // composition, inside dialogs, and when the editor or a field already handled them.
+  const onShortcutKey = useEffectEvent((event: KeyboardEvent) => {
+    if (isLoading) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const command = matchShortcut(toKeyInput(event, mac), COMMANDS, {
+      mac,
+      typing: isTypingTarget(target),
+      blocked: isBlockedTarget(target),
+      state: commandState,
+    });
+    if (!command) return;
+    event.preventDefault();
+    commandHandlers[command.id]();
+  });
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onShortcutKey(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
+
   if (isLoading) return <NotesSkeleton />;
 
   // The open note: a locked one shows its decrypted text, or the unlock pane until it has it
@@ -502,14 +590,12 @@ export default function NotesPage() {
     onOpenResult: openSearchResult,
     onHome: goHome,
     homeActive: selectedNote === null,
+    onShowShortcuts: () => setIsHelpOpen(true),
   };
   const toggles = {
     sidebarHidden: isSidebarHidden,
     onToggleSidebar: toggleSidebar,
-    onOpenDrawer: () => {
-      drawerClosedByNavigation.current = false;
-      setIsDrawerOpen(true);
-    },
+    onOpenDrawer: openDrawer,
   };
 
   return (
@@ -587,6 +673,16 @@ export default function NotesPage() {
       </main>
 
       <LockDialog mode={lockDialog} sample={lockedSample} onClose={() => setLockDialog(null)} onConfirm={confirmLockDialog} />
+      <CommandPalette
+        open={isPaletteOpen}
+        onOpenChange={setIsPaletteOpen}
+        state={commandState}
+        mac={mac}
+        search={search}
+        onRun={id => commandHandlers[id]()}
+        onOpenNote={openSearchResult}
+      />
+      <ShortcutsHelp open={isHelpOpen} onOpenChange={setIsHelpOpen} mac={mac} />
     </div>
   );
 }

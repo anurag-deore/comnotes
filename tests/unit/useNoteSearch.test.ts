@@ -108,4 +108,26 @@ describe('useNoteSearch', () => {
     root = null;
     expect(clear).toHaveBeenCalled();
   });
+
+  test('CNOTE-24 AC-6: find() queries the same index for the palette, with Archive, never Trash', async () => {
+    const sync = vi.spyOn(NoteSearchIndex.prototype, 'sync');
+    const rerender = mount();
+    expect(latest.find('alpha')).toEqual([]);
+    act(() => latest.prepare());
+    await wait(20);
+    const found = latest.find('plan');
+    expect(found.map((r) => r.note.id).sort()).toEqual(['archived', 'main']);
+    expect(found.find((r) => r.note.id === 'archived')?.archived).toBe(true);
+    expect(latest.find('plan', 1)).toHaveLength(1);
+    expect(latest.find('  ')).toEqual([]);
+    // The sidebar's own query is untouched
+    expect(latest.query).toBe('');
+    expect(sync).toHaveBeenCalled();
+
+    expect(latest.find('bank')).toEqual([]);
+    rerender({ secret: { title: 'Bank codes', content: '<p>pin</p>' } });
+    expect(latest.find('bank').map((r) => r.note.id)).toEqual(['secret']);
+    rerender({});
+    expect(latest.find('bank')).toEqual([]);
+  });
 });

@@ -22,6 +22,11 @@ export function resolveTheme(pref: ThemePreference, systemDark: boolean): Theme 
   return pref;
 }
 
+// The theme a light/dark toggle switches to (CNOTE-24)
+export function oppositeTheme(theme: Theme): Theme {
+  return theme === 'dark' ? 'light' : 'dark';
+}
+
 // Storage can be missing or throw (private mode, blocked site data); that just means "System"
 export function readThemePreference(storage: Pick<Storage, 'getItem'> | null): ThemePreference {
   try {

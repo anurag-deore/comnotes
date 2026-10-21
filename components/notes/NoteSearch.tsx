@@ -10,7 +10,7 @@ import type { NoteSearch, SearchResult } from '@/hooks/useNoteSearch';
 import { cn } from '@/lib/cn';
 
 // Highlighted text as React elements: plain strings and <mark>, never HTML (CNOTE-12)
-function Highlighted({ segments }: { segments: Segment[] }) {
+export function Highlighted({ segments }: { segments: Segment[] }) {
   return segments.map((segment, i) => (segment.match ? (
     // Not colour alone: matches are also bold
     <mark key={i} className="rounded-[2px] bg-primary-pale font-semibold text-ink">{segment.text}</mark>

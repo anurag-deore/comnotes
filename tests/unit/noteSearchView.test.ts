@@ -27,7 +27,8 @@ const results: SearchResult[] = [
 
 const search = (overrides: Partial<NoteSearch> = {}): NoteSearch => ({
   query: 'plan', setQuery: vi.fn(), clear: vi.fn(), prepare: vi.fn(), includeArchive: false,
-  setIncludeArchive: vi.fn(), searched: 'plan', total: results.length, results, status: 'ready', ...overrides,
+  setIncludeArchive: vi.fn(), searched: 'plan', total: results.length, results, status: 'ready', find: vi.fn(() => []),
+  ...overrides,
 });
 
 let root: Root | null = null;

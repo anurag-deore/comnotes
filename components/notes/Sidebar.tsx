@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Archive, ArrowLeft, House, Lock, NotebookPen, Plus, Trash2, X } from 'lucide-react';
+import { Archive, ArrowLeft, House, Keyboard, Lock, NotebookPen, Plus, Trash2, X } from 'lucide-react';
 import type { Note } from '@/types/note';
 import { Button, IconButton } from '@/components/ui/Button';
 import { NoteListItem } from '@/components/notes/NoteListItem';
@@ -40,6 +40,8 @@ export interface SidebarProps {
   // Home (CNOTE-23): closes the open note; active while Home shows
   onHome?: () => void;
   homeActive?: boolean;
+  // Keyboard shortcuts help (CNOTE-24); the button shows from 768px up, where keyboards are likely
+  onShowShortcuts?: () => void;
 }
 
 const VIEW_NAMES: Record<NoteView, string> = { notes: 'Notes', archive: 'Archive', trash: 'Trash' };
@@ -55,7 +57,7 @@ function useActiveResult(results: SearchResult[]) {
 // desktop sidebar and the mobile drawer.
 export function Sidebar({
   notes, archivedNotes, trashedNotes, selectedId, now, view, onShowView, onSelect, onCreate, onUnarchive, onRestore,
-  onDeleteForever, onLock, unlockedTitles, search, onOpenResult, headerAction, onHome, homeActive,
+  onDeleteForever, onLock, unlockedTitles, search, onOpenResult, headerAction, onHome, homeActive, onShowShortcuts,
 }: SidebarProps) {
   const inputId = useId();
   const listboxId = useId();
@@ -87,6 +89,9 @@ export function Sidebar({
           ComNotes
         </span>
         <span className="flex items-center gap-1">
+          {onShowShortcuts && (
+            <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={onShowShortcuts} className="max-md:hidden" />
+          )}
           {onHome && (
             <IconButton
               label="Home"
