@@ -29,9 +29,10 @@ const db = vi.hoisted(() => ({ name: 'test-db' }));
 vi.mock('@/lib/firebase', () => ({ db }));
 
 import {
-  createNote, deleteNotesForever, fetchAllNotes, importNotes, purgeExpiredTrash, restoreNote, saveNote, subscribeNotes,
-  toNote, trashNote,
+  createNote, deleteNotesForever, fetchAllNotes, findLegacyNotes, importNotes, migrateNote, migrateNotes, purgeExpiredTrash,
+  restoreNote, saveNote, subscribeNotes, toNote, trashNote,
 } from '@/lib/notes';
+import { SCHEMA_VERSION, needsMigration } from '@/lib/migration';
 import type { Note } from '@/types/note';
 import { PBKDF2_ITERATIONS, bytesToBase64, type EncryptedPayload } from '@/lib/noteCrypto';
 import { createVault } from '@/lib/vault';
@@ -108,6 +109,12 @@ describe('toNote', () => {
     expect(toNote('a', { title: 3 }).title).toBe('');
   });
 
+  test('CNOTE-21 AC-1: a missing date falls back to the other one, then to the epoch (never "now")', () => {
+    expect(toNote('a', { createdAt: new Timestamp(5) })).toMatchObject({ createdAt: new Date(5), updatedAt: new Date(5) });
+    expect(toNote('a', { updatedAt: new Timestamp(7) })).toMatchObject({ createdAt: new Date(7), updatedAt: new Date(7) });
+    expect(toNote('a', {})).toMatchObject({ createdAt: new Date(0), updatedAt: new Date(0) });
+  });
+
   test('keeps an existing rev', () => {
     expect(toNote('a', { title: 'T', content: '', rev: 4 }).rev).toBe(4);
   });
@@ -139,9 +146,11 @@ describe('saveNote', () => {
 
     expect(tx.update).not.toHaveBeenCalled();
     expect(tx.set).toHaveBeenCalledWith(expect.objectContaining({ path: 'notes/new-id' }), {
-      title: 'Shopping (conflict copy)', content: 'mine', rev: 0,
-      createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+      title: 'Shopping (conflict copy)', content: 'mine', encrypted: null, rev: 0,
+      createdAt: Timestamp.now(), updatedAt: Timestamp.now(), deletedAt: null, schemaVersion: 2,
     });
+    // CNOTE-21 AC-10: a conflict copy is written on the current schema
+    expect(needsMigration(tx.set.mock.calls[0][1])).toBe(false);
     expect(result).toEqual({
       status: 'conflict',
       server: expect.objectContaining({ id: 'a', content: 'theirs', rev: 5 }),
@@ -197,7 +206,9 @@ describe('saveNote for locked notes (CNOTE-7)', () => {
     expect(ref).toEqual(expect.objectContaining({ id: 'new-id' }));
     expect(copy).toEqual({
       title: '', content: '', encrypted: expect.any(Object), rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+      deletedAt: null, schemaVersion: 2,
     });
+    expect(needsMigration(copy)).toBe(false);
     expect(written(tx)).not.toContain('secret');
     expect(copy.encrypted.iv).not.toBe(payload.iv);
     await expect(vault.decrypt('new-id', copy.encrypted)).resolves.toEqual({ ...secret, title: 'Diary (conflict copy)' });
@@ -235,15 +246,17 @@ describe('saveNote for locked notes (CNOTE-7)', () => {
 });
 
 describe('subscribeNotes', () => {
-  test('AC-11: listens to notes ordered by updatedAt desc and maps documents', () => {
+  test('CNOTE-21 AC-1: listens to the whole collection (no orderBy) and maps documents', () => {
     const unsubscribe = vi.fn();
     firestore.onSnapshot.mockReturnValue(unsubscribe);
     const onNotes = vi.fn();
     const onError = vi.fn();
 
     expect(subscribeNotes(onNotes, onError)).toBe(unsubscribe);
-    const [q, next, error] = firestore.onSnapshot.mock.calls[0];
-    expect(q).toEqual({ ref: { path: 'notes' }, constraints: [{ orderBy: 'updatedAt', dir: 'desc' }] });
+    const [ref, next, error] = firestore.onSnapshot.mock.calls[0];
+    expect(ref).toEqual({ path: 'notes' });
+    expect(firestore.query).not.toHaveBeenCalled();
+    expect(firestore.orderBy).not.toHaveBeenCalled();
     expect(error).toBe(onError);
 
     const data = vi.fn(() => ({ title: 'T', content: 'C', rev: 1 }));
@@ -251,15 +264,171 @@ describe('subscribeNotes', () => {
     expect(data).toHaveBeenCalledWith({ serverTimestamps: 'estimate' });
     expect(onNotes).toHaveBeenCalledWith([expect.objectContaining({ id: 'a', title: 'T', rev: 1 })]);
   });
+
+  test('CNOTE-21 AC-1: newest first by updatedAt, and a legacy note without updatedAt is listed', () => {
+    firestore.onSnapshot.mockReturnValue(vi.fn());
+    const onNotes = vi.fn();
+    subscribeNotes(onNotes, vi.fn());
+    const next = firestore.onSnapshot.mock.calls[0][1];
+    const docOf = (id: string, fields: Record<string, unknown>) => ({ id, data: () => ({ title: id, content: '', ...fields }) });
+
+    next({
+      docs: [
+        docOf('old', { createdAt: new Timestamp(1), updatedAt: new Timestamp(2) }),
+        docOf('legacy', { createdAt: new Timestamp(5) }),
+        docOf('new', { createdAt: new Timestamp(1), updatedAt: new Timestamp(9) }),
+        docOf('undated', {}),
+        docOf('b-tie', { updatedAt: new Timestamp(9) }),
+      ],
+    });
+    const notes: Note[] = onNotes.mock.calls[0][0];
+    expect(notes.map((n) => [n.id, n.updatedAt.getTime()])).toEqual([
+      ['b-tie', 9], ['new', 9], ['legacy', 5], ['old', 2], ['undated', 0],
+    ]);
+  });
+});
+
+describe('findLegacyNotes (CNOTE-21 AC-6)', () => {
+  test('reads the whole collection once and returns the id and rev of notes that need migrating', async () => {
+    const data = vi.fn(() => current({ rev: 4 }));
+    firestore.getDocs.mockResolvedValue({
+      docs: [
+        { id: 'current', data },
+        { id: 'original', data: () => ({ title: 'T', content: '<p>x</p>', createdAt: new Timestamp(1), updatedAt: new Timestamp(2) }) },
+        { id: 'saved', data: () => current({ schemaVersion: undefined, rev: 3 }) },
+      ],
+    });
+
+    await expect(findLegacyNotes()).resolves.toEqual([{ id: 'original', rev: undefined }, { id: 'saved', rev: 3 }]);
+    expect(firestore.getDocs).toHaveBeenCalledTimes(1);
+    expect(firestore.getDocs).toHaveBeenCalledWith({ path: 'notes' });
+    expect(firestore.orderBy).not.toHaveBeenCalled();
+    expect(data).toHaveBeenCalledWith({ serverTimestamps: 'estimate' });
+  });
+});
+
+// A note as this version writes it (CNOTE-21)
+function current(fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    title: 'T', content: '<p>x</p>', rev: 0, createdAt: new Timestamp(1), updatedAt: new Timestamp(2), deletedAt: null,
+    encrypted: null, schemaVersion: SCHEMA_VERSION, ...fields,
+  };
+}
+
+// An in-memory /notes for migration runs: transactions read and update it
+function fakeStore(docs: Record<string, Record<string, unknown>>) {
+  const store = new Map(Object.entries(docs));
+  const updates: [string, Record<string, unknown>][] = [];
+  firestore.runTransaction.mockImplementation(async (_db, fn) => fn({
+    get: vi.fn(async (ref: { id: string }) => ({
+      id: ref.id, exists: () => store.has(ref.id), data: () => store.get(ref.id),
+    })),
+    update: vi.fn((ref: { id: string }, patch: Record<string, unknown>) => {
+      updates.push([ref.id, patch]);
+      store.set(ref.id, { ...store.get(ref.id), ...patch });
+    }),
+    set: vi.fn(),
+  }));
+  firestore.getDocs.mockImplementation(async () => ({
+    docs: [...store].map(([id, data]) => ({ id, data: () => data })),
+  }));
+  return { store, updates };
+}
+
+const NOW = new Date(50_000);
+const ORIGINAL = { title: 'Groceries', content: '', createdAt: new Timestamp(10), updatedAt: new Timestamp(20) };
+
+describe('migrateNote (CNOTE-21 AC-8)', () => {
+  test('writes the patch in a transaction without bumping rev or updatedAt', async () => {
+    const { updates } = fakeStore({ a: { ...ORIGINAL } });
+    await expect(migrateNote('a', undefined, NOW)).resolves.toBe('updated');
+    expect(firestore.runTransaction).toHaveBeenCalledWith(db, expect.any(Function));
+    expect(updates).toEqual([['a', { rev: 0, deletedAt: null, encrypted: null, schemaVersion: 2 }]]);
+  });
+
+  test('a note without updatedAt gets it from createdAt', async () => {
+    const { updates } = fakeStore({ a: { title: 'L', content: '', createdAt: new Timestamp(10) } });
+    await migrateNote('a', undefined, NOW);
+    expect(updates[0][1]).toMatchObject({ updatedAt: new Timestamp(10) });
+  });
+
+  test('skips a note whose rev changed since it was found (an edit landed); writes nothing', async () => {
+    const { updates } = fakeStore({ a: { ...ORIGINAL, rev: 1 } });
+    await expect(migrateNote('a', undefined, NOW)).resolves.toBe('changed');
+    await expect(migrateNote('a', 0, NOW)).resolves.toBe('changed');
+    expect(updates).toEqual([]);
+  });
+
+  test('skips a deleted note and a note that is already current', async () => {
+    const { updates } = fakeStore({ done: current() });
+    await expect(migrateNote('gone', undefined, NOW)).resolves.toBe('gone');
+    await expect(migrateNote('done', 0, NOW)).resolves.toBe('current');
+    expect(updates).toEqual([]);
+  });
+
+  test('patches from the fresh read, so a trash made meanwhile (no rev change) is kept', async () => {
+    const { store } = fakeStore({ a: { ...ORIGINAL, deletedAt: new Timestamp(30) } });
+    await migrateNote('a', undefined, NOW);
+    expect(store.get('a')).toMatchObject({ deletedAt: new Timestamp(30), schemaVersion: 2 });
+  });
+});
+
+describe('migrateNotes (CNOTE-21 AC-4, AC-8)', () => {
+  test('counts updated and skipped, reports progress, and a second run writes nothing', async () => {
+    const { updates } = fakeStore({
+      a: { ...ORIGINAL }, b: { title: 'B', content: '', createdAt: new Timestamp(3) }, c: { ...ORIGINAL, rev: 2 },
+    });
+    const legacy = await findLegacyNotes();
+    // c is edited after it was found
+    const found = legacy.map((note) => (note.id === 'c' ? { ...note, rev: 1 } : note));
+    const progress = vi.fn();
+
+    await expect(migrateNotes(found, NOW, progress)).resolves.toEqual({ updated: 2, skipped: 1, failed: 0 });
+    expect(progress).toHaveBeenLastCalledWith(3);
+    expect(updates.map(([id]) => id).sort()).toEqual(['a', 'b']);
+
+    updates.length = 0;
+    await expect(migrateNotes(found.filter((n) => n.id !== 'c'), NOW)).resolves.toEqual({ updated: 0, skipped: 2, failed: 0 });
+    expect(updates).toEqual([]);
+    expect((await findLegacyNotes()).map((n) => n.id)).toEqual(['c']);
+  });
+
+  test('a failed note is counted and the others still migrate', async () => {
+    const { updates } = fakeStore({ a: { ...ORIGINAL }, b: { ...ORIGINAL } });
+    const run = firestore.runTransaction.getMockImplementation()!;
+    firestore.runTransaction.mockImplementationOnce(async () => { throw new Error('offline'); }).mockImplementation(run);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(migrateNotes([{ id: 'a', rev: undefined }, { id: 'b', rev: undefined }], NOW))
+      .resolves.toEqual({ updated: 1, skipped: 0, failed: 1 });
+    expect(updates).toHaveLength(1);
+  });
+
+  test('runs at most 5 transactions at once', async () => {
+    let active = 0;
+    let peak = 0;
+    firestore.runTransaction.mockImplementation(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+      return 'updated';
+    });
+    const legacy = Array.from({ length: 12 }, (_, i) => ({ id: `n${i}`, rev: 0 }));
+    await expect(migrateNotes(legacy, NOW)).resolves.toEqual({ updated: 12, skipped: 0, failed: 0 });
+    expect(peak).toBe(5);
+  });
 });
 
 describe('createNote', () => {
-  test('AC-2: new notes start at rev 0', async () => {
+  test('AC-2 / CNOTE-21 AC-10: new notes start at rev 0, on the current schema', async () => {
     firestore.addDoc.mockResolvedValue({ id: 'b' });
     const n = await createNote();
     expect(firestore.addDoc).toHaveBeenCalledWith({ path: 'notes' }, {
-      title: 'Untitled Note', content: '', rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+      title: 'Untitled Note', content: '', rev: 0, createdAt: Timestamp.now(), updatedAt: Timestamp.now(), deletedAt: null,
+      encrypted: null, schemaVersion: 2,
     });
+    expect(needsMigration(firestore.addDoc.mock.calls[0][1])).toBe(false);
     expect(n).toEqual({
       id: 'b', title: 'Untitled Note', content: '', rev: 0, createdAt: new Date(1_000), updatedAt: new Date(1_000), deletedAt: null,
       locked: false, encrypted: null,
@@ -368,12 +537,16 @@ describe('importNotes (CNOTE-19 AC-11, AC-14)', () => {
     expect(made[0].delete).not.toHaveBeenCalled();
     expect(made[0].set.mock.calls).toEqual([
       [{ path: 'notes/new-id', id: 'new-id' }, {
-        title: 'T1', content: '<p>1</p>', rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21), deletedAt: null,
+        title: 'T1', content: '<p>1</p>', encrypted: null, rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21),
+        deletedAt: null, schemaVersion: 2,
       }],
       [{ path: 'notes/new-id', id: 'new-id' }, {
-        title: 'T2', content: '<p>2</p>', rev: 0, createdAt: new Timestamp(12), updatedAt: new Timestamp(22), deletedAt: new Timestamp(99),
+        title: 'T2', content: '<p>2</p>', encrypted: null, rev: 0, createdAt: new Timestamp(12), updatedAt: new Timestamp(22),
+        deletedAt: new Timestamp(99), schemaVersion: 2,
       }],
     ]);
+    // CNOTE-21 AC-10: imported notes are written on the current schema
+    expect(made[0].set.mock.calls.every(([, data]) => !needsMigration(data))).toBe(true);
     // A new id each time: doc() on the collection, never doc(db, 'notes', backupId)
     expect(firestore.doc).toHaveBeenCalledWith({ path: 'notes' });
     expect(firestore.doc).toHaveBeenCalledTimes(2);
@@ -404,6 +577,7 @@ describe('importNotes (CNOTE-19 AC-11, AC-14)', () => {
     expect(made[0].set.mock.calls).toEqual([
       [{ path: 'notes/Abc123', id: 'Abc123' }, {
         title: '', content: '', encrypted: payload, rev: 0, createdAt: new Timestamp(11), updatedAt: new Timestamp(21), deletedAt: null,
+        schemaVersion: 2,
       }],
     ]);
   });

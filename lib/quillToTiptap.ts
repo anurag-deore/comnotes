@@ -164,12 +164,18 @@ function convertClasses(doc: Document) {
 
 // Quill 2.0.3 exports every space as &nbsp;, which would stop lines from wrapping.
 // Each run keeps one breakable space; the extra spaces stay non-breaking so they survive.
+// Quill never puts a normal space next to an &nbsp;, so a run that touches one is already
+// converted (or typed in Tiptap) and is left alone: converting twice changes nothing (CNOTE-21).
+const NBSP_RUN = /(^|[^ \u00a0])(\u00a0+)(?=[^ ]|$)/g;
+
 function convertNbsp(doc: Document) {
   const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (node.parentElement?.closest('pre')) continue;
     const text = node.nodeValue ?? '';
-    if (text.includes(' ')) node.nodeValue = text.replace(/ +/g, (run) => ' ' + ' '.repeat(run.length - 1));
+    if (text.includes('\u00a0')) {
+      node.nodeValue = text.replace(NBSP_RUN, (_match, before: string, run: string) => before + ' ' + run.slice(1));
+    }
   }
 }
 

@@ -149,6 +149,23 @@ describe('convertQuillHtml – Quill editor DOM (AC-2)', () => {
   });
 });
 
+describe('convertQuillHtml – idempotent (CNOTE-21 AC-5)', () => {
+  test.each([
+    ['Quill 2 semantic', QUILL2_SEMANTIC],
+    ['Quill 2 root', QUILL2_ROOT],
+    ['Quill 1 root', QUILL1_ROOT],
+  ])('%s: converting the output again changes nothing', (_label, html) => {
+    const once = convertQuillHtml(html);
+    expect(convertQuillHtml(once)).toBe(once);
+  });
+
+  test('a non-breaking space next to a normal space is left alone', () => {
+    expect(convertQuillHtml('<p>a  b</p>')).toBe('<p>a &nbsp;b</p>');
+    expect(convertQuillHtml('<p>a  b</p>')).toBe('<p>a&nbsp; b</p>');
+    expect(convertQuillHtml('<p>two&nbsp;&nbsp;spaces</p>')).toBe('<p>two &nbsp;spaces</p>');
+  });
+});
+
 describe('convertQuillHtml – other input', () => {
   test('leaves plain and empty HTML alone', () => {
     expect(convertQuillHtml('')).toBe('');

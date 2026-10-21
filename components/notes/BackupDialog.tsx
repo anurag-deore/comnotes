@@ -4,8 +4,9 @@ import { useId, useRef, useState, type ChangeEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Archive, Download, Loader2, Upload, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ERRORS, MAX_BACKUP_BYTES, backupFileName, parseBackup, planImport, type ImportedNote } from '@/lib/backup';
+import { ERRORS, MAX_BACKUP_BYTES, parseBackup, planImport, type ImportedNote } from '@/lib/backup';
 import { sanitizeNoteHtml } from '@/lib/editorContent';
+import { downloadBackup, loadBackupZip } from '@/lib/downloadBackup';
 import { ImportError, fetchAllNotes, importNotes } from '@/lib/notes';
 import { Button, IconButton } from '@/components/ui/Button';
 
@@ -20,24 +21,11 @@ interface ImportPlan {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
-// Zip and Markdown code (fflate, @tiptap/markdown) loads only when a backup is made or read
-const loadBackupZip = () => import('@/lib/backupZip');
-
 // aria-disabled rather than disabled while busy, so the focused button keeps focus
 const BUSY_AWARE = 'mt-3 aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
 
 // Lets the busy state paint before synchronous work (zipping, converting) starts
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-
-function downloadFile(bytes: Uint8Array, name: string, type: string) {
-  const url = URL.createObjectURL(new Blob([bytes.slice()], { type }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-  // Some browsers start the download after click() returns
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 // Backup: export every note as a zip (notes.json + Markdown), or import a backup as new notes (CNOTE-19)
 export function BackupDialog() {
@@ -76,9 +64,7 @@ export function BackupDialog() {
     setPhase('exporting');
     try {
       await nextFrame();
-      const [{ buildBackupZip }, notes] = await Promise.all([loadBackupZip(), fetchAllNotes()]);
-      const now = new Date();
-      downloadFile(buildBackupZip(notes, now), backupFileName(now), 'application/zip');
+      await downloadBackup();
       setPhase('idle');
       toast.success('Backup downloaded');
     } catch (cause) {

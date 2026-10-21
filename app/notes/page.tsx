@@ -7,6 +7,7 @@ import {
   createNote, deleteNotesForever, purgeExpiredTrash, restoreNote, subscribeNotes, trashNote,
 } from '@/lib/notes';
 import { useAutosave } from '@/hooks/useAutosave';
+import { useNoteMigration } from '@/hooks/useNoteMigration';
 import { Note } from '@/types/note';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,6 +23,7 @@ import { EditorPane, SidebarButtons } from '@/components/notes/EditorPane';
 import { LockedNotePane, type LockedState } from '@/components/notes/LockedNotePane';
 import { LockDialog, type LockDialogMode } from '@/components/notes/LockDialog';
 import { NotesSkeleton } from '@/components/notes/NotesSkeleton';
+import { MigrationBanner } from '@/components/notes/MigrationBanner';
 import { animateListChange } from '@/lib/listMotion';
 import { noteListsChanged, prefersReducedMotion, runViewTransition } from '@/lib/motion';
 import { browserStorage, readSidebarHidden, writeSidebarHidden } from '@/lib/sidebarPreference';
@@ -55,6 +57,8 @@ export default function NotesPage() {
   const sealCount = useRef(new Map<string, number>());
   const [lockDialog, setLockDialog] = useState<LockDialogMode | null>(null);
   const vaultVersion = useSyncExternalStore(noteVault.subscribe, noteVault.getVersion, noteVault.getVersion);
+  // Notes saved by older versions (CNOTE-21), checked once the list has loaded
+  const migration = useNoteMigration(!isLoading);
 
   // Every change to the notes goes through here. Adding, removing or re-ordering rows animates
   // (View Transition, lib/listMotion.ts); edits that keep the order are applied as usual.
@@ -339,6 +343,18 @@ export default function NotesPage() {
 
   const clearFocusTitle = useCallback(() => setFocusTitleId(null), []);
 
+  // The banner goes away once every older note is updated, or when hidden; focus moves to the note area
+  const focusNoteArea = () => document.getElementById('note-editor')?.focus();
+  const updateOlderNotes = () => {
+    void migration.update().then((remaining) => {
+      if (remaining === 0) focusNoteArea();
+    });
+  };
+  const hideMigrationBanner = () => {
+    migration.dismiss();
+    focusNoteArea();
+  };
+
   // Hide/show the desktop sidebar: it slides while the editor card resizes (instant with reduced motion)
   const toggleSidebar = () => {
     const hidden = !isSidebarHidden;
@@ -407,6 +423,17 @@ export default function NotesPage() {
         tabIndex={-1}
         className={`flex min-w-0 flex-1 flex-col outline-none md:py-3 md:pr-3 ${isSidebarHidden ? 'md:pl-3' : ''}`}
       >
+        {migration.legacy.length > 0 && (
+          <MigrationBanner
+            count={migration.legacy.length}
+            phase={migration.phase}
+            done={migration.done}
+            result={migration.result}
+            onExport={() => void migration.exportBackup()}
+            onUpdate={updateOlderNotes}
+            onDismiss={hideMigrationBanner}
+          />
+        )}
         {selectedNote?.locked && !decrypted ? (
           <LockedNotePane
             // A fresh form per note, so a typed passphrase never carries over
