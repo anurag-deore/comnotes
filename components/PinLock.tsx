@@ -80,7 +80,7 @@ export default function PinLock() {
         width={1699}
         height={926}
         unoptimized
-        className="pointer-events-none absolute bottom-0 left-1/2 -z-10 h-auto w-[max(112%,56rem)] max-w-none -translate-x-1/2 translate-y-[16%] opacity-(--scenery-opacity) [filter:var(--scenery-filter)] [mask-image:linear-gradient(to_top,black_35%,transparent_85%)]"
+        className="pointer-events-none absolute bottom-0 left-1/2 -z-10 h-auto w-[max(112%,56rem)] max-w-none -translate-x-1/2 translate-y-[16%] opacity-(--scenery-opacity) [filter:var(--scenery-filter)] [mask-image:linear-gradient(to_top,black_50%,transparent_95%)]"
       />
 
       <header className="flex justify-center px-4 pt-8 md:pt-10">

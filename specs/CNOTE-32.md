@@ -24,7 +24,7 @@ Out: rename (CNOTE-28), showing which user is unlocking (CNOTE-30), digit boxes 
 
 - `public/images/pin-scenery.webp`: the user's PNG (1699×926, transparent) re-encoded as WebP (about 300 kB). It's served as is (`unoptimized`), so it's a plain same-origin file the service worker can cache.
 - `components/PinLock.tsx`: a full-height page with a header (logo) and a centred card. The picture is absolute at the bottom, behind everything (`-z-10`), `max(112%, 56rem)` wide and shifted down 16%, so its ragged sides and bottom edge fall off the page.
-- `app/globals.css`: `--scenery-opacity` and `--scenery-filter` keep it faint and blended (40% and less saturated in light; 30%, darker, in dark so the snow doesn't glare). A mask fades it into the page towards the top.
+- `app/globals.css`: `--scenery-opacity` and `--scenery-filter` keep it faint and blended (75% and slightly less saturated in light; 50%, darker, in dark so the snow doesn't glare). A mask fades it into the page towards the top.
 - `public/sw-routes.js`: `/images/` is network-first, like `/icons/`, so the PIN screen keeps its picture offline.
 - Replaces the SVG hills (`components/PinScenery.tsx`, removed), which the user found too basic.
 
