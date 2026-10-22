@@ -51,8 +51,8 @@ describe('strategyFor (CNOTE-20 AC-13)', () => {
     expect(routes.strategyFor(request(`${ORIGIN}/notes`, { mode: 'navigate' }), ORIGIN)).toBe('page');
   });
 
-  test('the manifest, favicon and icons are network-first', () => {
-    for (const path of ['/manifest.webmanifest', '/favicon.ico', '/icons/icon-192.png']) {
+  test('the manifest, favicon, icons and images are network-first', () => {
+    for (const path of ['/manifest.webmanifest', '/favicon.ico', '/icons/icon-192.png', '/images/pin-scenery.webp']) {
       expect(routes.strategyFor(request(`${ORIGIN}${path}`), ORIGIN)).toBe('network-first');
     }
   });

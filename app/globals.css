@@ -37,6 +37,10 @@
   --focus-ring: var(--ink);
   --elevation-raised: 0 8px 24px rgb(14 15 12 / 0.12);
 
+  /* PIN screen watercolor (CNOTE-32): as painted */
+  --scenery-opacity: 1;
+  --scenery-filter: none;
+
   /* Motion (CNOTE-16): calm and quick. Ease out on the way in, ease in on the way out */
   --motion-fast: 120ms;   /* hover, press, small exits */
   --motion-base: 180ms;   /* popover, toast, save status, list rows */
@@ -80,6 +84,10 @@
 
   /* A shadow alone vanishes on near-black: a hairline lifts popovers, toasts and the drawer */
   --elevation-raised: 0 0 0 1px rgb(232 235 230 / 0.1), 0 8px 24px rgb(0 0 0 / 0.5);
+
+  /* The watercolor's white snow would glare on near-black: dimmed and toned down */
+  --scenery-opacity: 0.55;
+  --scenery-filter: brightness(0.8) saturate(0.85);
 }
 
 @theme inline {

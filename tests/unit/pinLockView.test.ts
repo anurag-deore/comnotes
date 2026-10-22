@@ -71,9 +71,10 @@ describe('PIN screen (CNOTE-32)', () => {
     expect(host.textContent).toContain(autoLockSummary());
   });
 
-  test('the scenery is decorative', () => {
+  test('the scenery is a decorative picture', () => {
     render();
-    const svgs = [...host.querySelectorAll('svg[aria-hidden="true"]')];
-    expect(svgs.some((svg) => svg.getAttribute('viewBox') === '0 0 1440 520')).toBe(true);
+    const scenery = host.querySelector('img[src="/images/pin-scenery.webp"]');
+    expect(scenery?.getAttribute('alt')).toBe('');
+    expect(scenery?.getAttribute('aria-hidden')).toBe('true');
   });
 });
