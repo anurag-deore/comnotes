@@ -17,7 +17,7 @@
   const ASSET_PATTERN = /(?<=["'(\s,])\/_next\/static\/[^"'\\\s<>()]+/g;
 
   // 'cache-first': hashed build files never change. 'page': network-first, falling back to the cached
-  // page and then the cached root. 'network-first': small public files. 'none': not handled at all.
+  // page and then the cached root. 'network-first': small public files and images. 'none': not handled at all.
   function strategyFor(request, origin) {
     if (request.method !== 'GET') return 'none';
     let url;
@@ -33,7 +33,7 @@
     if (url.searchParams.has('_rsc') || request.headers.get('RSC') || request.headers.get('Next-Router-Prefetch')) return 'none';
     if (path.startsWith('/_next/static/')) return 'cache-first';
     if (request.mode === 'navigate') return 'page';
-    if (PUBLIC_FILES.includes(path) || path.startsWith('/icons/')) return 'network-first';
+    if (PUBLIC_FILES.includes(path) || path.startsWith('/icons/') || path.startsWith('/images/')) return 'network-first';
     return 'none';
   }
 
