@@ -70,9 +70,9 @@ export default function PinLock() {
 
   return (
     <main className="relative isolate flex min-h-dvh flex-col overflow-hidden bg-canvas">
-      {/* Watercolor across the bottom, behind the card. Its sky is transparent; it's drawn a little wider
-          and lower than the page so its ragged sides and bottom edge are cut off. Already a small WebP,
-          so served as is (and cached offline by the service worker) */}
+      {/* Watercolor across the bottom, behind the card, fading into the page towards the top. It's drawn
+          a little wider and lower than the page so its ragged sides and bottom edge are cut off. Already
+          a small WebP, so served as is (and cached offline by the service worker) */}
       <Image
         src="/images/pin-scenery.webp"
         alt=""
@@ -80,7 +80,7 @@ export default function PinLock() {
         width={1699}
         height={926}
         unoptimized
-        className="pointer-events-none absolute bottom-0 left-1/2 -z-10 h-auto w-[max(112%,56rem)] max-w-none -translate-x-1/2 translate-y-[16%] opacity-(--scenery-opacity) [filter:var(--scenery-filter)]"
+        className="pointer-events-none absolute bottom-0 left-1/2 -z-10 h-auto w-[max(112%,56rem)] max-w-none -translate-x-1/2 translate-y-[16%] opacity-(--scenery-opacity) [filter:var(--scenery-filter)] [mask-image:linear-gradient(to_top,black_35%,transparent_85%)]"
       />
 
       <header className="flex justify-center px-4 pt-8 md:pt-10">
